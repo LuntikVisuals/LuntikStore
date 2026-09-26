@@ -2,6 +2,7 @@ package com.luntik.store
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
@@ -37,7 +38,7 @@ object ApkDownloader {
         try {
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "LuntikStore/0.2")
+                .header("User-Agent", "LuntikStore/0.3")
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -116,10 +117,35 @@ object ApkDownloader {
 
     fun isInstalled(context: Context, packageName: String): Boolean {
         return try {
-            context.packageManager.getPackageInfo(packageName, 0)
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(packageName, 0)
+            }
             true
         } catch (_: Exception) {
             false
+        }
+    }
+
+    fun installedVersionName(context: Context, packageName: String): String? {
+        return try {
+            val info = if (Build.VERSION.SDK_INT >= 33) {
+                context.packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(packageName, 0)
+            }
+            info.versionName
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -133,5 +159,23 @@ object ApkDownloader {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /** true if remote catalog version is newer than installed */
+    fun needsUpdate(installed: String?, catalogVersion: String): Boolean {
+        if (installed.isNullOrBlank()) return false
+        return compareVersions(catalogVersion, installed) > 0
+    }
+
+    private fun compareVersions(a: String, b: String): Int {
+        val pa = a.split(".", "-").mapNotNull { it.toIntOrNull() }
+        val pb = b.split(".", "-").mapNotNull { it.toIntOrNull() }
+        val n = maxOf(pa.size, pb.size)
+        for (i in 0 until n) {
+            val x = pa.getOrElse(i) { 0 }
+            val y = pb.getOrElse(i) { 0 }
+            if (x != y) return x.compareTo(y)
+        }
+        return 0
     }
 }
