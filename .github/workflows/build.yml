@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -50,10 +53,40 @@ jobs:
             gradle assembleDebug --stacktrace --no-daemon
           fi
 
-      - name: Upload APK
+      - name: Prepare APK for release
+        if: success()
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/debug/*.apk release/LuntikStore.apk
+          ls -la release/
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         if: success()
         with:
           name: luntikstore-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: release/LuntikStore.apk
           retention-days: 14
+
+      - name: Create / Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          tag_name: latest
+          name: LuntikStore latest
+          body: |
+            Автосборка LuntikStore
+
+            Установка только через **LuntikTerminal**:
+            ```
+            auth
+            download
+            verify
+            install
+            ```
+          files: release/LuntikStore.apk
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
