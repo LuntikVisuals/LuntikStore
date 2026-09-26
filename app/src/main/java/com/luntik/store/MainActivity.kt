@@ -1,9 +1,13 @@
 package com.luntik.store
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -44,10 +49,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +63,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+
+    private val notifPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -62,6 +75,14 @@ class MainActivity : ComponentActivity() {
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
+        }
+        UpdateNotifier.ensureChannel(this)
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
         setContent { StoreRoot() }
     }
@@ -79,12 +100,31 @@ private object G {
     val Accent = Color(0xFF8B9CFF)
     val Green = Color(0xFF5CFFB0)
     val Warning = Color(0xFFFFC857)
+    val Error = Color(0xFFFF6B7A)
 }
+
+private enum class Screen { Auth, Catalog, Detail }
 
 @Composable
 fun StoreRoot() {
+    val context = LocalContext.current
+    val accountStore = remember { AccountStore(context) }
+    var screen by remember {
+        mutableStateOf(if (accountStore.isLoggedIn()) Screen.Catalog else Screen.Auth)
+    }
     var selectedId by remember { mutableStateOf<String?>(null) }
-    val app = selectedId?.let { Catalog.byId(it) }
+    var refreshTick by remember { mutableIntStateOf(0) }
+
+    // check updates on open
+    LaunchedEffect(refreshTick) {
+        val outdated = Catalog.apps.mapNotNull { app ->
+            val inst = ApkDownloader.installedVersionName(context, app.packageName)
+            if (ApkDownloader.needsUpdate(inst, app.version)) app.name else null
+        }
+        if (outdated.isNotEmpty()) {
+            UpdateNotifier.notifyUpdates(context, outdated)
+        }
+    }
 
     Box(
         Modifier
@@ -101,16 +141,115 @@ fun StoreRoot() {
                 )
         )
 
-        if (app == null) {
-            CatalogScreen(onOpen = { selectedId = it })
-        } else {
-            DetailScreen(app = app, onBack = { selectedId = null })
+        when {
+            screen == Screen.Auth -> AuthScreen(
+                accountStore = accountStore,
+                onDone = { screen = Screen.Catalog }
+            )
+            selectedId != null -> {
+                val app = Catalog.byId(selectedId!!)
+                if (app != null) {
+                    DetailScreen(
+                        app = app,
+                        refreshTick = refreshTick,
+                        onBack = { selectedId = null; refreshTick++ },
+                        onChanged = { refreshTick++ }
+                    )
+                } else selectedId = null
+            }
+            else -> CatalogScreen(
+                refreshTick = refreshTick,
+                account = accountStore.current(),
+                onOpen = { selectedId = it },
+                onLogout = {
+                    accountStore.setSession(false)
+                    screen = Screen.Auth
+                }
+            )
         }
     }
 }
 
 @Composable
-private fun CatalogScreen(onOpen: (String) -> Unit) {
+private fun AuthScreen(accountStore: AccountStore, onDone: () -> Unit) {
+    var isRegister by remember { mutableStateOf(!accountStore.isLoggedIn()) }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var display by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("LuntikStore", color = G.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text(
+            if (isRegister) "Регистрация" else "Вход",
+            color = G.TextDim,
+            fontSize = 15.sp,
+            modifier = Modifier.padding(top = 6.dp, bottom = 24.dp)
+        )
+
+        Field(username, "Логин") { username = it }
+        Spacer(Modifier.height(10.dp))
+        Field(password, "Пароль", password = true) { password = it }
+        if (isRegister) {
+            Spacer(Modifier.height(10.dp))
+            Field(display, "Имя (необязательно)") { display = it }
+        }
+
+        error?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = G.Error, fontSize = 13.sp)
+        }
+
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton(if (isRegister) "Создать аккаунт" else "Войти") {
+            error = if (isRegister) {
+                accountStore.register(username, password, display)
+            } else {
+                accountStore.login(username, password)
+            }
+            if (error == null) {
+                accountStore.setSession(true)
+                onDone()
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Text(
+            if (isRegister) "Уже есть аккаунт? Войти" else "Нет аккаунта? Регистрация",
+            color = G.Accent,
+            fontSize = 13.sp,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .clickable {
+                    isRegister = !isRegister
+                    error = null
+                }
+        )
+
+        Spacer(Modifier.height(24.dp))
+        Text(
+            "Аккаунт хранится только на этом устройстве.\nПароль — SHA-256, никуда не отправляется.",
+            color = G.TextMute,
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun CatalogScreen(
+    refreshTick: Int,
+    account: Account?,
+    onOpen: (String) -> Unit,
+    onLogout: () -> Unit
+) {
     val context = LocalContext.current
 
     LazyColumn(
@@ -122,22 +261,41 @@ private fun CatalogScreen(onOpen: (String) -> Unit) {
     ) {
         item {
             Spacer(Modifier.height(28.dp))
-            Text("LuntikStore", color = G.Text, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            Text("магазин · отзывы · проверка LuntikAi", color = G.TextDim, fontSize = 14.sp)
-            Spacer(Modifier.height(24.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("LuntikStore", color = G.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        account?.displayName?.let { "привет, $it" } ?: "магазин Luntik",
+                        color = G.TextDim,
+                        fontSize = 13.sp
+                    )
+                }
+                Text(
+                    "Выйти",
+                    color = G.TextMute,
+                    fontSize = 12.sp,
+                    modifier = Modifier.clickable(onClick = onLogout)
+                )
+            }
+            Spacer(Modifier.height(22.dp))
         }
 
-        items(Catalog.apps) { app ->
+        items(Catalog.apps, key = { it.id + refreshTick }) { app ->
             val installed = ApkDownloader.isInstalled(context, app.packageName)
-            AppRow(app, installed) { onOpen(app.id) }
+            val instVer = ApkDownloader.installedVersionName(context, app.packageName)
+            val update = ApkDownloader.needsUpdate(instVer, app.version)
+            AppRow(app, installed, update) { onOpen(app.id) }
             Spacer(Modifier.height(12.dp))
         }
 
         item {
             Spacer(Modifier.height(16.dp))
             Text(
-                "v0.2.0 · APK с GitHub Releases · отзывы локально",
+                "v0.3.0 · проверка обновлений при запуске",
                 color = G.TextMute,
                 fontSize = 11.sp,
                 modifier = Modifier.fillMaxWidth(),
@@ -148,8 +306,24 @@ private fun CatalogScreen(onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun AppRow(app: CatalogApp, installed: Boolean, onClick: () -> Unit) {
+private fun AppRow(
+    app: CatalogApp,
+    installed: Boolean,
+    update: Boolean,
+    onClick: () -> Unit
+) {
     val shape = RoundedCornerShape(20.dp)
+    val badge = when {
+        update -> "обновить"
+        installed -> "открыть"
+        else -> "скачать"
+    }
+    val badgeColor = when {
+        update -> G.Warning
+        installed -> G.Green
+        else -> G.TextDim
+    }
+
     Box(
         Modifier
             .fillMaxWidth()
@@ -181,19 +355,11 @@ private fun AppRow(app: CatalogApp, installed: Boolean, onClick: () -> Unit) {
             Box(
                 Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .background(if (installed) G.Green.copy(alpha = 0.15f) else G.GlassStrong)
-                    .border(
-                        1.dp,
-                        if (installed) G.Green.copy(alpha = 0.4f) else G.Border,
-                        RoundedCornerShape(20.dp)
-                    )
+                    .background(badgeColor.copy(alpha = 0.15f))
+                    .border(1.dp, badgeColor.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
                     .padding(horizontal = 12.dp, vertical = 7.dp)
             ) {
-                Text(
-                    if (installed) "установлено" else "открыть",
-                    color = if (installed) G.Green else G.TextDim,
-                    fontSize = 12.sp
-                )
+                Text(badge, color = badgeColor, fontSize = 12.sp)
             }
         }
     }
@@ -209,31 +375,26 @@ private fun AppIcon(accent: Color) {
             .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            Modifier
-                .size(22.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .border(2.dp, accent, RoundedCornerShape(6.dp))
-        )
-        Box(
-            Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(accent)
-        )
+        Box(Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).border(2.dp, accent, RoundedCornerShape(6.dp)))
+        Box(Modifier.size(10.dp).clip(CircleShape).background(accent))
     }
 }
 
 @Composable
-private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
+private fun DetailScreen(
+    app: CatalogApp,
+    refreshTick: Int,
+    onBack: () -> Unit,
+    onChanged: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val reviewStore = remember { ReviewStore(context) }
+    val account = remember { AccountStore(context).current() }
 
     var reviewList by remember { mutableStateOf(reviewStore.getReviews(app.id)) }
     var rating by remember { mutableIntStateOf(5) }
     var reviewText by remember { mutableStateOf("") }
-    var author by remember { mutableStateOf("Гость") }
 
     var downloading by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
@@ -241,6 +402,34 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
 
     val safety = remember(app.id) { LuntikAiSafety.analyze(app) }
     val installed = ApkDownloader.isInstalled(context, app.packageName)
+    val instVer = ApkDownloader.installedVersionName(context, app.packageName)
+    val update = ApkDownloader.needsUpdate(instVer, app.version)
+
+    fun startDownload() {
+        if (!ApkDownloader.canInstall(context)) {
+            status = "Нужно разрешение на установку APK"
+            ApkDownloader.openInstallSettings(context)
+            return
+        }
+        downloading = true
+        status = "Скачивание с GitHub..."
+        scope.launch {
+            val result = ApkDownloader.download(
+                context, app.downloadUrl, "${app.id}.apk"
+            ) { progress = it }
+            withContext(Dispatchers.Main) {
+                downloading = false
+                if (result.success && result.file != null) {
+                    status = "Установка..."
+                    ApkDownloader.install(context, result.file)
+                    status = "Диалог установки открыт"
+                    onChanged()
+                } else {
+                    status = result.error ?: "Ошибка"
+                }
+            }
+        }
+    }
 
     LazyColumn(
         Modifier
@@ -251,12 +440,7 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
     ) {
         item {
             Spacer(Modifier.height(16.dp))
-            Text(
-                "←  Назад",
-                color = G.Accent,
-                fontSize = 14.sp,
-                modifier = Modifier.clickable(onClick = onBack)
-            )
+            Text("←  Назад", color = G.Accent, fontSize = 14.sp, modifier = Modifier.clickable(onClick = onBack))
             Spacer(Modifier.height(20.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -265,7 +449,12 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
                 Column {
                     Text(app.name, color = G.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text(app.tagline, color = G.TextDim, fontSize = 14.sp)
-                    Text("v${app.version}", color = G.TextMute, fontSize = 12.sp)
+                    Text(
+                        if (installed) "установлено v${instVer ?: "?"} · каталог v${app.version}"
+                        else "v${app.version}",
+                        color = G.TextMute,
+                        fontSize = 12.sp
+                    )
                 }
             }
 
@@ -273,39 +462,19 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
             Text(app.description, color = G.TextDim, fontSize = 14.sp, lineHeight = 20.sp)
             Spacer(Modifier.height(20.dp))
 
-            val btnLabel = when {
-                downloading -> "Загрузка ${(progress * 100).toInt()}%"
-                installed -> "Открыть"
-                else -> "Скачать и установить"
-            }
-            PrimaryButton(btnLabel, enabled = !downloading) {
-                if (installed) {
-                    ApkDownloader.openApp(context, app.packageName)
-                } else {
-                    if (!ApkDownloader.canInstall(context)) {
-                        status = "Нужно разрешение на установку APK"
-                        ApkDownloader.openInstallSettings(context)
-                        return@PrimaryButton
+            if (downloading) {
+                PrimaryButton("Загрузка ${(progress * 100).toInt()}%", enabled = false) {}
+            } else if (!installed) {
+                PrimaryButton("Скачать и установить") { startDownload() }
+            } else {
+                PrimaryButton("Открыть") {
+                    if (!ApkDownloader.openApp(context, app.packageName)) {
+                        status = "Не удалось открыть"
                     }
-                    downloading = true
-                    status = "Скачивание с GitHub..."
-                    scope.launch {
-                        val result = ApkDownloader.download(
-                            context,
-                            app.downloadUrl,
-                            "${app.id}.apk"
-                        ) { progress = it }
-                        withContext(Dispatchers.Main) {
-                            downloading = false
-                            if (result.success && result.file != null) {
-                                status = "Установка..."
-                                ApkDownloader.install(context, result.file)
-                                status = "Диалог установки открыт"
-                            } else {
-                                status = result.error ?: "Ошибка"
-                            }
-                        }
-                    }
+                }
+                if (update) {
+                    Spacer(Modifier.height(10.dp))
+                    SecondaryButton("Обновить до v${app.version}") { startDownload() }
                 }
             }
 
@@ -324,27 +493,10 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
-                Text(
-                    "Оценка ${safety.score}/100",
-                    color = G.TextMute,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                Text(
-                    safety.summary,
-                    color = G.TextDim,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 8.dp),
-                    lineHeight = 18.sp
-                )
+                Text("Оценка ${safety.score}/100", color = G.TextMute, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                Text(safety.summary, color = G.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp), lineHeight = 18.sp)
                 safety.points.forEach { p ->
-                    Text(
-                        "·  $p",
-                        color = G.TextDim,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 6.dp),
-                        lineHeight = 17.sp
-                    )
+                    Text("·  $p", color = G.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
                 }
             }
 
@@ -366,8 +518,6 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                Field(author, "Имя") { author = it }
-                Spacer(Modifier.height(8.dp))
                 Field(reviewText, "Текст отзыва") { reviewText = it }
                 Spacer(Modifier.height(12.dp))
                 PrimaryButton("Отправить") {
@@ -375,7 +525,7 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
                         reviewStore.addReview(
                             Review(
                                 appId = app.id,
-                                author = author.ifBlank { "Гость" },
+                                author = account?.displayName ?: "Гость",
                                 rating = rating,
                                 text = reviewText.trim()
                             )
@@ -387,17 +537,8 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(12.dp))
-
             if (reviewList.isEmpty()) {
-                Text("Пока нет отзывов — будь первым.", color = G.TextMute, fontSize = 13.sp)
-            } else {
-                val avg = reviewStore.averageRating(app.id)
-                Text(
-                    "Средняя оценка: ${"%.1f".format(avg)} · ${reviewList.size}",
-                    color = G.TextDim,
-                    fontSize = 13.sp
-                )
-                Spacer(Modifier.height(10.dp))
+                Text("Пока нет отзывов.", color = G.TextMute, fontSize = 13.sp)
             }
         }
 
@@ -408,28 +549,15 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Text("★".repeat(r.rating), color = G.Warning, fontSize = 12.sp)
                 }
-                Text(
-                    r.text,
-                    color = G.TextDim,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 6.dp),
-                    lineHeight = 18.sp
-                )
+                Text(r.text, color = G.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
             }
             Spacer(Modifier.height(8.dp))
         }
     }
 }
 
-@Composable
-private fun SectionLabel(t: String) {
-    Text(
-        t,
-        color = G.TextMute,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 1.2.sp
-    )
+@Composable private fun SectionLabel(t: String) {
+    Text(t, color = G.TextMute, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
 }
 
 @Composable
@@ -439,11 +567,7 @@ private fun GlassBlock(content: @Composable ColumnScope.() -> Unit) {
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f))
-                )
-            )
+            .background(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f))))
             .border(1.dp, G.Border, shape)
             .padding(1.dp)
     ) {
@@ -474,7 +598,28 @@ private fun PrimaryButton(label: String, enabled: Boolean = true, onClick: () ->
 }
 
 @Composable
-private fun Field(value: String, hint: String, onChange: (String) -> Unit) {
+private fun SecondaryButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, G.Warning.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+            .background(G.Warning.copy(alpha = 0.12f))
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = G.Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun Field(
+    value: String,
+    hint: String,
+    password: Boolean = false,
+    onChange: (String) -> Unit
+) {
     Box(
         Modifier
             .fillMaxWidth()
@@ -490,6 +635,7 @@ private fun Field(value: String, hint: String, onChange: (String) -> Unit) {
             value = value,
             onValueChange = onChange,
             textStyle = TextStyle(color = G.Text, fontSize = 13.sp),
+            visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
             modifier = Modifier.fillMaxWidth()
         )
     }
