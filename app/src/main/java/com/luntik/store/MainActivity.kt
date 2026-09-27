@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -59,6 +61,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -115,11 +120,21 @@ fun StoreRoot() {
     var selectedId by remember { mutableStateOf<String?>(null) }
     var refreshTick by remember { mutableIntStateOf(0) }
 
-    // check updates on open
+    // Реальная проверка обновлений через GitHub API
     LaunchedEffect(refreshTick) {
-        val outdated = Catalog.apps.mapNotNull { app ->
-            val inst = ApkDownloader.installedVersionName(context, app.packageName)
-            if (ApkDownloader.needsUpdate(inst, app.version)) app.name else null
+        val outdated = mutableListOf<String>()
+        coroutineScope {
+            Catalog.apps.map { app ->
+                async {
+                    if (!ApkDownloader.isInstalled(context, app.packageName)) return@async
+                    val remote = ReleaseChecker.fetchLatest(app)
+                    if (remote.available &&
+                        ReleaseChecker.hasUpdate(context, app.id, remote.publishedAt)
+                    ) {
+                        outdated.add(app.name)
+                    }
+                }
+            }.awaitAll()
         }
         if (outdated.isNotEmpty()) {
             UpdateNotifier.notifyUpdates(context, outdated)
@@ -142,16 +157,12 @@ fun StoreRoot() {
         )
 
         when {
-            screen == Screen.Auth -> AuthScreen(
-                accountStore = accountStore,
-                onDone = { screen = Screen.Catalog }
-            )
+            screen == Screen.Auth -> AuthScreen(accountStore) { screen = Screen.Catalog }
             selectedId != null -> {
                 val app = Catalog.byId(selectedId!!)
                 if (app != null) {
                     DetailScreen(
                         app = app,
-                        refreshTick = refreshTick,
                         onBack = { selectedId = null; refreshTick++ },
                         onChanged = { refreshTick++ }
                     )
@@ -179,10 +190,7 @@ private fun AuthScreen(accountStore: AccountStore, onDone: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(24.dp),
+        Modifier.fillMaxSize().statusBarsPadding().padding(24.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Text("LuntikStore", color = G.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -192,7 +200,6 @@ private fun AuthScreen(accountStore: AccountStore, onDone: () -> Unit) {
             fontSize = 15.sp,
             modifier = Modifier.padding(top = 6.dp, bottom = 24.dp)
         )
-
         Field(username, "Логин") { username = it }
         Spacer(Modifier.height(10.dp))
         Field(password, "Пароль", password = true) { password = it }
@@ -200,45 +207,28 @@ private fun AuthScreen(accountStore: AccountStore, onDone: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             Field(display, "Имя (необязательно)") { display = it }
         }
-
         error?.let {
             Spacer(Modifier.height(10.dp))
             Text(it, color = G.Error, fontSize = 13.sp)
         }
-
         Spacer(Modifier.height(20.dp))
         PrimaryButton(if (isRegister) "Создать аккаунт" else "Войти") {
-            error = if (isRegister) {
-                accountStore.register(username, password, display)
-            } else {
-                accountStore.login(username, password)
-            }
+            error = if (isRegister) accountStore.register(username, password, display)
+            else accountStore.login(username, password)
             if (error == null) {
                 accountStore.setSession(true)
                 onDone()
             }
         }
-
         Spacer(Modifier.height(14.dp))
         Text(
             if (isRegister) "Уже есть аккаунт? Войти" else "Нет аккаунта? Регистрация",
             color = G.Accent,
             fontSize = 13.sp,
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .clickable {
-                    isRegister = !isRegister
-                    error = null
-                }
-        )
-
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "Аккаунт хранится только на этом устройстве.\nПароль — SHA-256, никуда не отправляется.",
-            color = G.TextMute,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.align(Alignment.CenterHorizontally).clickable {
+                isRegister = !isRegister
+                error = null
+            }
         )
     }
 }
@@ -251,12 +241,32 @@ private fun CatalogScreen(
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
+    var category by remember { mutableStateOf(AppCategory.ALL) }
+    var updateMap by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+
+    LaunchedEffect(refreshTick) {
+        val map = mutableMapOf<String, Boolean>()
+        coroutineScope {
+            Catalog.apps.map { app ->
+                async {
+                    val installed = ApkDownloader.isInstalled(context, app.packageName)
+                    if (!installed) {
+                        map[app.id] = false
+                        return@async
+                    }
+                    val remote = ReleaseChecker.fetchLatest(app)
+                    map[app.id] = remote.available &&
+                        ReleaseChecker.hasUpdate(context, app.id, remote.publishedAt)
+                }
+            }.awaitAll()
+        }
+        updateMap = map.toMap()
+    }
+
+    val filtered = Catalog.byCategory(category)
 
     LazyColumn(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 20.dp),
+        Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp),
         contentPadding = PaddingValues(bottom = 40.dp)
     ) {
         item {
@@ -274,20 +284,40 @@ private fun CatalogScreen(
                         fontSize = 13.sp
                     )
                 }
-                Text(
-                    "Выйти",
-                    color = G.TextMute,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable(onClick = onLogout)
-                )
+                Text("Выйти", color = G.TextMute, fontSize = 12.sp, modifier = Modifier.clickable(onClick = onLogout))
             }
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(18.dp))
+
+            // Categories like Play Store
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AppCategory.entries.forEach { cat ->
+                    val selected = category == cat
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (selected) G.Accent else G.GlassStrong)
+                            .border(1.dp, if (selected) G.Accent else G.Border, RoundedCornerShape(20.dp))
+                            .clickable { category = cat }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            cat.title,
+                            color = if (selected) Color.Black else G.TextDim,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(18.dp))
         }
 
-        items(Catalog.apps, key = { it.id + refreshTick }) { app ->
+        items(filtered, key = { it.id + refreshTick + (updateMap[it.id] == true) }) { app ->
             val installed = ApkDownloader.isInstalled(context, app.packageName)
-            val instVer = ApkDownloader.installedVersionName(context, app.packageName)
-            val update = ApkDownloader.needsUpdate(instVer, app.version)
+            val update = updateMap[app.id] == true
             AppRow(app, installed, update) { onOpen(app.id) }
             Spacer(Modifier.height(12.dp))
         }
@@ -295,7 +325,7 @@ private fun CatalogScreen(
         item {
             Spacer(Modifier.height(16.dp))
             Text(
-                "v0.3.0 · проверка обновлений при запуске",
+                "v0.4.0 · обновления с GitHub Releases API",
                 color = G.TextMute,
                 fontSize = 11.sp,
                 modifier = Modifier.fillMaxWidth(),
@@ -306,12 +336,7 @@ private fun CatalogScreen(
 }
 
 @Composable
-private fun AppRow(
-    app: CatalogApp,
-    installed: Boolean,
-    update: Boolean,
-    onClick: () -> Unit
-) {
+private fun AppRow(app: CatalogApp, installed: Boolean, update: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     val badge = when {
         update -> "обновить"
@@ -328,21 +353,13 @@ private fun AppRow(
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f))
-                )
-            )
+            .background(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f))))
             .border(1.dp, G.Border, shape)
             .clickable(onClick = onClick)
             .padding(1.dp)
     ) {
         Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(19.dp))
-                .background(G.Bg2.copy(alpha = 0.88f))
-                .padding(16.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(19.dp)).background(G.Bg2.copy(alpha = 0.88f)).padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             AppIcon(app.accent)
@@ -350,7 +367,7 @@ private fun AppRow(
             Column(Modifier.weight(1f)) {
                 Text(app.name, color = G.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text(app.tagline, color = G.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("v${app.version}", color = G.TextMute, fontSize = 11.sp)
+                Text(app.category.title, color = G.TextMute, fontSize = 11.sp)
             }
             Box(
                 Modifier
@@ -368,9 +385,7 @@ private fun AppRow(
 @Composable
 private fun AppIcon(accent: Color) {
     Box(
-        Modifier
-            .size(52.dp)
-            .clip(RoundedCornerShape(16.dp))
+        Modifier.size(52.dp).clip(RoundedCornerShape(16.dp))
             .background(accent.copy(alpha = 0.15f))
             .border(1.dp, accent.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
         contentAlignment = Alignment.Center
@@ -381,12 +396,7 @@ private fun AppIcon(accent: Color) {
 }
 
 @Composable
-private fun DetailScreen(
-    app: CatalogApp,
-    refreshTick: Int,
-    onBack: () -> Unit,
-    onChanged: () -> Unit
-) {
+private fun DetailScreen(app: CatalogApp, onBack: () -> Unit, onChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val reviewStore = remember { ReviewStore(context) }
@@ -399,11 +409,27 @@ private fun DetailScreen(
     var downloading by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableFloatStateOf(0f) }
+    var remote by remember { mutableStateOf<RemoteRelease?>(null) }
+    var checking by remember { mutableStateOf(true) }
 
     val safety = remember(app.id) { LuntikAiSafety.analyze(app) }
     val installed = ApkDownloader.isInstalled(context, app.packageName)
     val instVer = ApkDownloader.installedVersionName(context, app.packageName)
-    val update = ApkDownloader.needsUpdate(instVer, app.version)
+
+    LaunchedEffect(app.id) {
+        checking = true
+        status = "Проверка GitHub Releases..."
+        remote = ReleaseChecker.fetchLatest(app)
+        checking = false
+        status = when {
+            remote?.available == true -> "Релиз найден: ${remote?.assetName ?: "APK"}"
+            remote?.error != null -> remote?.error
+            else -> "Релиз не найден"
+        }
+    }
+
+    val hasUpdate = installed && remote?.available == true &&
+        ReleaseChecker.hasUpdate(context, app.id, remote?.publishedAt)
 
     fun startDownload() {
         if (!ApkDownloader.canInstall(context)) {
@@ -411,31 +437,28 @@ private fun DetailScreen(
             ApkDownloader.openInstallSettings(context)
             return
         }
+        val url = remote?.downloadUrl ?: app.downloadUrlFallback
         downloading = true
-        status = "Скачивание с GitHub..."
+        status = "Скачивание..."
         scope.launch {
-            val result = ApkDownloader.download(
-                context, app.downloadUrl, "${app.id}.apk"
-            ) { progress = it }
+            val result = ApkDownloader.download(context, url, "${app.id}.apk") { progress = it }
             withContext(Dispatchers.Main) {
                 downloading = false
                 if (result.success && result.file != null) {
+                    ReleaseChecker.markInstalledRelease(context, app.id, remote?.publishedAt)
                     status = "Установка..."
                     ApkDownloader.install(context, result.file)
                     status = "Диалог установки открыт"
                     onChanged()
                 } else {
-                    status = result.error ?: "Ошибка"
+                    status = result.error ?: "Ошибка загрузки. Нет релиза на GitHub?"
                 }
             }
         }
     }
 
     LazyColumn(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 20.dp),
+        Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 20.dp),
         contentPadding = PaddingValues(bottom = 48.dp)
     ) {
         item {
@@ -450,8 +473,10 @@ private fun DetailScreen(
                     Text(app.name, color = G.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text(app.tagline, color = G.TextDim, fontSize = 14.sp)
                     Text(
-                        if (installed) "установлено v${instVer ?: "?"} · каталог v${app.version}"
-                        else "v${app.version}",
+                        buildString {
+                            if (installed) append("уст. v${instVer ?: "?"} · ")
+                            append(app.category.title)
+                        },
                         color = G.TextMute,
                         fontSize = 12.sp
                     )
@@ -462,19 +487,24 @@ private fun DetailScreen(
             Text(app.description, color = G.TextDim, fontSize = 14.sp, lineHeight = 20.sp)
             Spacer(Modifier.height(20.dp))
 
-            if (downloading) {
-                PrimaryButton("Загрузка ${(progress * 100).toInt()}%", enabled = false) {}
-            } else if (!installed) {
-                PrimaryButton("Скачать и установить") { startDownload() }
-            } else {
-                PrimaryButton("Открыть") {
-                    if (!ApkDownloader.openApp(context, app.packageName)) {
-                        status = "Не удалось открыть"
+            when {
+                downloading -> PrimaryButton("Загрузка ${(progress * 100).toInt()}%", enabled = false) {}
+                checking -> PrimaryButton("Проверка релиза...", enabled = false) {}
+                !installed -> PrimaryButton("Скачать и установить") { startDownload() }
+                else -> {
+                    PrimaryButton("Открыть") {
+                        if (app.packageName == context.packageName) {
+                            status = "Уже в LuntikStore"
+                        } else if (!ApkDownloader.openApp(context, app.packageName)) {
+                            status = "Не удалось открыть"
+                        }
                     }
-                }
-                if (update) {
                     Spacer(Modifier.height(10.dp))
-                    SecondaryButton("Обновить до v${app.version}") { startDownload() }
+                    if (hasUpdate) {
+                        SecondaryButton("Обновить с GitHub") { startDownload() }
+                    } else {
+                        SecondaryButton("Переустановить с GitHub") { startDownload() }
+                    }
                 }
             }
 
@@ -487,14 +517,9 @@ private fun DetailScreen(
             SectionLabel("LUNTIKAI · БЕЗОПАСНОСТЬ")
             Spacer(Modifier.height(10.dp))
             GlassBlock {
-                Text(
-                    safety.title,
-                    color = if (safety.safe) G.Green else G.Warning,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Text(safety.title, color = if (safety.safe) G.Green else G.Warning, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Text("Оценка ${safety.score}/100", color = G.TextMute, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                Text(safety.summary, color = G.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp), lineHeight = 18.sp)
+                Text(safety.summary, color = G.TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
                 safety.points.forEach { p ->
                     Text("·  $p", color = G.TextDim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -503,7 +528,6 @@ private fun DetailScreen(
             Spacer(Modifier.height(28.dp))
             SectionLabel("ОТЗЫВЫ")
             Spacer(Modifier.height(10.dp))
-
             GlassBlock {
                 Text("Оставить отзыв", color = G.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(10.dp))
@@ -523,19 +547,13 @@ private fun DetailScreen(
                 PrimaryButton("Отправить") {
                     if (reviewText.isNotBlank()) {
                         reviewStore.addReview(
-                            Review(
-                                appId = app.id,
-                                author = account?.displayName ?: "Гость",
-                                rating = rating,
-                                text = reviewText.trim()
-                            )
+                            Review(app.id, account?.displayName ?: "Гость", rating, reviewText.trim())
                         )
                         reviewList = reviewStore.getReviews(app.id)
                         reviewText = ""
                     }
                 }
             }
-
             Spacer(Modifier.height(12.dp))
             if (reviewList.isEmpty()) {
                 Text("Пока нет отзывов.", color = G.TextMute, fontSize = 13.sp)
@@ -564,19 +582,12 @@ private fun DetailScreen(
 private fun GlassBlock(content: @Composable ColumnScope.() -> Unit) {
     val shape = RoundedCornerShape(18.dp)
     Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
+        Modifier.fillMaxWidth().clip(shape)
             .background(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f))))
-            .border(1.dp, G.Border, shape)
-            .padding(1.dp)
+            .border(1.dp, G.Border, shape).padding(1.dp)
     ) {
         Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(17.dp))
-                .background(G.Bg2.copy(alpha = 0.9f))
-                .padding(16.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(G.Bg2.copy(alpha = 0.9f)).padding(16.dp),
             content = content
         )
     }
@@ -585,12 +596,9 @@ private fun GlassBlock(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun PrimaryButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
             .background(if (enabled) G.Accent else G.Accent.copy(alpha = 0.4f))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 14.dp),
+            .clickable(enabled = enabled, onClick = onClick).padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(label, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -600,13 +608,10 @@ private fun PrimaryButton(label: String, enabled: Boolean = true, onClick: () ->
 @Composable
 private fun SecondaryButton(label: String, onClick: () -> Unit) {
     Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
             .border(1.dp, G.Warning.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
             .background(G.Warning.copy(alpha = 0.12f))
-            .clickable(onClick = onClick)
-            .padding(vertical = 14.dp),
+            .clickable(onClick = onClick).padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(label, color = G.Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -614,23 +619,14 @@ private fun SecondaryButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Field(
-    value: String,
-    hint: String,
-    password: Boolean = false,
-    onChange: (String) -> Unit
-) {
+private fun Field(value: String, hint: String, password: Boolean = false, onChange: (String) -> Unit) {
     Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
             .background(Color.White.copy(alpha = 0.06f))
             .border(1.dp, G.Border, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
-        if (value.isEmpty()) {
-            Text(hint, color = G.TextMute, fontSize = 13.sp)
-        }
+        if (value.isEmpty()) Text(hint, color = G.TextMute, fontSize = 13.sp)
         BasicTextField(
             value = value,
             onValueChange = onChange,
