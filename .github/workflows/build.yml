@@ -34,8 +34,12 @@ jobs:
           mkdir -p $ANDROID_HOME/licenses
           echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee\n" > $ANDROID_HOME/licenses/android-sdk-license
           echo -e "84831b9409646a918e30573bab4c9c91346d8abd\n" > $ANDROID_HOME/licenses/android-sdk-preview-license
-          echo -e "d975f751698a77b662f1254ddbeed3901e976f5a\n" > $ANDROID_HOME/licenses/intel-android-extra-license
-          echo -e "33b6a2b64607f11b759f320ef9dff4ae8c87d171\n" > $ANDROID_HOME/licenses/google-gdk-license
+
+      - name: Decode fixed keystore
+        run: |
+          mkdir -p keystore
+          base64 -d keystore/debug.keystore.b64 > keystore/debug.keystore
+          ls -la keystore/
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -75,15 +79,7 @@ jobs:
           tag_name: latest
           name: LuntikStore latest
           body: |
-            Автосборка LuntikStore
-
-            Установка только через **LuntikTerminal**:
-            ```
-            auth
-            download
-            verify
-            install
-            ```
+            Автосборка LuntikStore (фиксированная подпись — обновления ставятся поверх)
           files: release/LuntikStore.apk
           draft: false
           prerelease: false
