@@ -6,12 +6,12 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Без этого Android 11+ не видит чужие пакеты — isInstalled всегда false -->
     <queries>
         <package android:name="com.luntik.terminal" />
         <package android:name="com.luntik.ai" />
         <package android:name="com.lumina.widgets" />
         <package android:name="com.luntik.store" />
+        <package android:name="com.luntik.snake" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
