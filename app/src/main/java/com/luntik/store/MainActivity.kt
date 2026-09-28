@@ -132,7 +132,10 @@ fun StoreRoot() {
         )
 
         when {
-            screen == Screen.Auth -> AuthScreen(accountStore) { screen = Screen.Catalog }
+            screen == Screen.Auth -> AuthScreen(accountStore) {
+                accountStore.setSession(true)
+                screen = Screen.Catalog
+            }
             selectedId != null -> {
                 val app = Catalog.byId(selectedId!!)
                 if (app != null) {
@@ -203,7 +206,10 @@ private fun AuthScreen(accountStore: AccountStore, onDone: () -> Unit) {
         PrimaryButton(if (isRegister) "Создать аккаунт" else "Войти") {
             error = if (isRegister) accountStore.register(username, password, display)
             else accountStore.login(username, password)
-            if (error == null) onDone()
+            if (error == null) {
+                accountStore.setSession(true)
+                onDone()
+            }
         }
         Spacer(Modifier.height(12.dp))
         Text(
@@ -315,6 +321,7 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit, onChanged: () -> U
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val reviewStore = remember { ReviewStore(context) }
+    val accountName = remember { AccountStore(context).current()?.username ?: "Игрок" }
     var reviewList by remember { mutableStateOf(reviewStore.getReviews(app.id)) }
     var rating by remember { mutableIntStateOf(5) }
     var reviewText by remember { mutableStateOf("") }
@@ -349,8 +356,8 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit, onChanged: () -> U
             val result = ApkDownloader.download(context, url, "${app.id}.apk") { progress = it }
             withContext(Dispatchers.Main) {
                 downloading = false
-                status = if (result.ok) {
-                    ApkDownloader.install(context, result.file!!)
+                status = if (result.success) {
+                    result.file?.let { ApkDownloader.install(context, it) }
                     "Установка..."
                 } else result.error ?: "Ошибка"
                 onChanged()
@@ -406,7 +413,9 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit, onChanged: () -> U
         Spacer(Modifier.height(8.dp))
         PrimaryButton("Отправить отзыв") {
             if (reviewText.isNotBlank()) {
-                reviewStore.add(app.id, accountStoreName = "user", rating, reviewText)
+                reviewStore.addReview(
+                    Review(appId = app.id, author = accountName, rating = rating, text = reviewText)
+                )
                 reviewList = reviewStore.getReviews(app.id)
                 reviewText = ""
             }
