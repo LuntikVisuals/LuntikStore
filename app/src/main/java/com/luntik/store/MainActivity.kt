@@ -85,7 +85,6 @@ private object G {
 }
 
 private enum class Screen { Auth, Catalog, Detail }
-private enum class MainTab { Apps, Profile }
 
 @Composable
 fun StoreRoot() {
@@ -157,11 +156,7 @@ fun StoreRoot() {
                         when (tab) {
                             MainTab.Apps -> CatalogScreen(
                                 account = accountStore.current(),
-                                onOpen = { selectedId = it },
-                                onLogout = {
-                                    accountStore.setSession(false)
-                                    screen = Screen.Auth
-                                }
+                                onOpen = { selectedId = it }
                             )
                             MainTab.Profile -> ProfileTab(
                                 account = accountStore.current(),
@@ -279,8 +274,7 @@ private fun StarPicker(value: Int, onChange: (Int) -> Unit) {
 @Composable
 private fun CatalogScreen(
     account: Account?,
-    onOpen: (String) -> Unit,
-    onLogout: () -> Unit
+    onOpen: (String) -> Unit
 ) {
     val context = LocalContext.current
     val reviewStore = remember { ReviewStore(context) }
@@ -505,28 +499,5 @@ private fun PrimaryButton(text: String, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Text(text, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun StoreBottomBar(tab: MainTab, onTab: (MainTab) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(G.Bg0.copy(alpha = 0.95f))
-            .border(1.dp, G.Border)
-            .navigationBarsPadding()
-            .padding(vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly
-    ) {
-        listOf(MainTab.Apps to "Приложения", MainTab.Profile to "Профиль").forEach { (t, label) ->
-            Text(
-                label,
-                color = if (tab == t) G.Accent else G.TextMute,
-                fontSize = 13.sp,
-                fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Normal,
-                modifier = Modifier.clickable { onTab(t) }.padding(8.dp)
-            )
-        }
     }
 }
