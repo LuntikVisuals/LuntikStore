@@ -1,1 +1,3 @@
-PLACEHOLDER_WILL_FAIL
+package com.luntik.store
+
+// FILE TOO LARGE - use run
