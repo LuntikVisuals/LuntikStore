@@ -12,6 +12,7 @@
         <package android:name="com.lumina.widgets" />
         <package android:name="com.luntik.store" />
         <package android:name="com.luntik.snake" />
+        <package android:name="com.luntik.dopros" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
