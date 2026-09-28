@@ -74,19 +74,18 @@ class MainActivity : ComponentActivity() {
 private object G {
     val Bg0 = Color(0xFF08080C)
     val Bg1 = Color(0xFF101018)
-    val Bg2 = Color(0xFF16161F)
     val GlassStrong = Color.White.copy(alpha = 0.11f)
     val Border = Color.White.copy(alpha = 0.13f)
     val Text = Color(0xFFF2F2F7)
     val TextDim = Color.White.copy(alpha = 0.55f)
     val TextMute = Color.White.copy(alpha = 0.32f)
     val Accent = Color(0xFF8B9CFF)
-    val Green = Color(0xFF5CFFB0)
-    val Warning = Color(0xFFFFC857)
+    val Star = Color(0xFFFFC857)
     val Error = Color(0xFFFF6B7A)
 }
 
 private enum class Screen { Auth, Catalog, Detail }
+private enum class MainTab { Apps, Profile }
 
 @Composable
 fun StoreRoot() {
@@ -96,22 +95,27 @@ fun StoreRoot() {
         mutableStateOf(if (accountStore.isLoggedIn()) Screen.Catalog else Screen.Auth)
     }
     var selectedId by remember { mutableStateOf<String?>(null) }
-    var refreshTick by remember { mutableIntStateOf(0) }
+    var updatesChecked by remember { mutableStateOf(false) }
 
-    LaunchedEffect(refreshTick) {
+    // Проверка обновлений ОДИН раз при входе в каталог — не на каждый refresh
+    LaunchedEffect(screen) {
+        if (screen != Screen.Catalog || updatesChecked) return@LaunchedEffect
+        updatesChecked = true
         val outdated = mutableListOf<String>()
-        coroutineScope {
-            Catalog.apps.map { app ->
-                async {
-                    if (!ApkDownloader.isInstalled(context, app.packageName)) return@async
-                    val remote = ReleaseChecker.fetchLatest(app)
-                    if (remote.available &&
-                        ReleaseChecker.hasUpdate(context, app.id, remote.publishedAt)
-                    ) {
-                        outdated.add(app.name)
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                Catalog.apps.map { app ->
+                    async {
+                        if (!ApkDownloader.isInstalled(context, app.packageName)) return@async
+                        val remote = ReleaseChecker.fetchLatest(app)
+                        if (remote.available &&
+                            ReleaseChecker.hasUpdate(context, app.id, remote.publishedAt)
+                        ) {
+                            synchronized(outdated) { outdated.add(app.name) }
+                        }
                     }
-                }
-            }.forEach { it.await() }
+                }.forEach { it.await() }
+            }
         }
         if (outdated.isNotEmpty()) UpdateNotifier.notifyUpdates(context, outdated)
     }
@@ -141,8 +145,8 @@ fun StoreRoot() {
                 if (app != null) {
                     DetailScreen(
                         app = app,
-                        onBack = { selectedId = null; refreshTick++ },
-                        onChanged = { refreshTick++ }
+                        onBack = { selectedId = null },
+                        onChanged = { }
                     )
                 } else selectedId = null
             }
@@ -152,7 +156,6 @@ fun StoreRoot() {
                     Box(Modifier.weight(1f)) {
                         when (tab) {
                             MainTab.Apps -> CatalogScreen(
-                                refreshTick = refreshTick,
                                 account = accountStore.current(),
                                 onOpen = { selectedId = it },
                                 onLogout = {
@@ -242,14 +245,46 @@ private fun Field(label: String, value: String, password: Boolean = false, onCha
 }
 
 @Composable
+private fun StarRow(rating: Float, count: Int, compact: Boolean = false) {
+    val full = rating.toInt().coerceIn(0, 5)
+    val label = if (count == 0) "Нет оценок" else String.format("%.1f", rating) + " · $count"
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = buildString {
+                repeat(full) { append('★') }
+                repeat(5 - full) { append('☆') }
+            },
+            color = if (count == 0) G.TextMute else G.Star,
+            fontSize = if (compact) 12.sp else 16.sp
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = G.TextMute, fontSize = if (compact) 11.sp else 12.sp)
+    }
+}
+
+@Composable
+private fun StarPicker(value: Int, onChange: (Int) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        (1..5).forEach { i ->
+            Text(
+                text = if (i <= value) "★" else "☆",
+                color = if (i <= value) G.Star else G.TextMute,
+                fontSize = 28.sp,
+                modifier = Modifier.clickable { onChange(i) }
+            )
+        }
+    }
+}
+
+@Composable
 private fun CatalogScreen(
-    refreshTick: Int,
     account: Account?,
     onOpen: (String) -> Unit,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
+    val reviewStore = remember { ReviewStore(context) }
     var cat by remember { mutableStateOf(AppCategory.ALL) }
-    @Suppress("UNUSED_VARIABLE") val t = refreshTick
     val list = Catalog.byCategory(cat)
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -287,6 +322,8 @@ private fun CatalogScreen(
             modifier = Modifier.weight(1f)
         ) {
             items(list, key = { it.id }) { app ->
+                val avg = reviewStore.averageRating(app.id)
+                val cnt = reviewStore.reviewCount(app.id)
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(G.GlassStrong)
                         .border(1.dp, G.Border, RoundedCornerShape(16.dp))
@@ -304,11 +341,8 @@ private fun CatalogScreen(
                     Column(Modifier.weight(1f)) {
                         Text(app.name, color = G.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         Text(app.tagline, color = G.TextDim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            if (app.isOfficial) app.category.title else "Автор: ${app.author}",
-                            color = G.TextMute,
-                            fontSize = 11.sp
-                        )
+                        Spacer(Modifier.height(2.dp))
+                        StarRow(rating = avg, count = cnt, compact = true)
                     }
                 }
             }
@@ -330,7 +364,10 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit, onChanged: () -> U
     var progress by remember { mutableFloatStateOf(0f) }
     var remote by remember { mutableStateOf<RemoteRelease?>(null) }
     var checking by remember { mutableStateOf(true) }
-    val installed = ApkDownloader.isInstalled(context, app.packageName)
+    val installed = remember { ApkDownloader.isInstalled(context, app.packageName) }
+
+    val avg = reviewStore.averageRating(app.id)
+    val cnt = reviewList.size
 
     LaunchedEffect(app.id) {
         checking = true
@@ -372,6 +409,8 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit, onChanged: () -> U
         Spacer(Modifier.height(12.dp))
         Text(app.name, color = G.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text(app.tagline, color = G.TextDim, fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        StarRow(rating = avg, count = cnt)
         Spacer(Modifier.height(12.dp))
         Text(app.description, color = G.TextDim, fontSize = 14.sp, lineHeight = 20.sp)
         if (!app.isOfficial) {
@@ -401,25 +440,60 @@ private fun DetailScreen(app: CatalogApp, onBack: () -> Unit, onChanged: () -> U
             Spacer(Modifier.height(6.dp))
             Text("Проверка релизов...", color = G.TextMute, fontSize = 12.sp)
         }
-        Spacer(Modifier.height(24.dp))
-        Text("Отзывы", color = G.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        reviewList.forEach { r ->
-            Text("${r.author}: ${r.rating}/5 — ${r.text}", color = G.TextDim, fontSize = 13.sp)
-            Spacer(Modifier.height(4.dp))
-        }
-        Spacer(Modifier.height(12.dp))
-        Field("Ваш отзыв", reviewText) { reviewText = it }
-        Spacer(Modifier.height(8.dp))
-        PrimaryButton("Отправить отзыв") {
-            if (reviewText.isNotBlank()) {
-                reviewStore.addReview(
-                    Review(appId = app.id, author = accountName, rating = rating, text = reviewText)
+
+        Spacer(Modifier.height(28.dp))
+        Text("Оставить оценку", color = G.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        StarPicker(value = rating, onChange = { rating = it })
+        Spacer(Modifier.height(10.dp))
+        Field("Комментарий (необязательно)", reviewText) { reviewText = it }
+        Spacer(Modifier.height(10.dp))
+        PrimaryButton("Отправить оценку") {
+            reviewStore.addReview(
+                Review(
+                    appId = app.id,
+                    author = accountName,
+                    rating = rating,
+                    text = reviewText.ifBlank { "Без комментария" }
                 )
-                reviewList = reviewStore.getReviews(app.id)
-                reviewText = ""
+            )
+            reviewList = reviewStore.getReviews(app.id)
+            reviewText = ""
+            status = "Оценка сохранена: $rating★"
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Text("Отзывы ($cnt)", color = G.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        if (reviewList.isEmpty()) {
+            Text("Пока нет отзывов — будь первым", color = G.TextMute, fontSize = 13.sp)
+        } else {
+            reviewList.forEach { r ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(G.GlassStrong)
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(r.author, color = G.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            buildString { repeat(r.rating) { append('★') } },
+                            color = G.Star,
+                            fontSize = 12.sp
+                        )
+                    }
+                    if (r.text.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(r.text, color = G.TextDim, fontSize = 13.sp)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
             }
         }
+        Spacer(Modifier.height(32.dp))
     }
 }
 
@@ -431,5 +505,28 @@ private fun PrimaryButton(text: String, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Text(text, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun StoreBottomBar(tab: MainTab, onTab: (MainTab) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(G.Bg0.copy(alpha = 0.95f))
+            .border(1.dp, G.Border)
+            .navigationBarsPadding()
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        listOf(MainTab.Apps to "Приложения", MainTab.Profile to "Профиль").forEach { (t, label) ->
+            Text(
+                label,
+                color = if (tab == t) G.Accent else G.TextMute,
+                fontSize = 13.sp,
+                fontWeight = if (tab == t) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier.clickable { onTab(t) }.padding(8.dp)
+            )
+        }
     }
 }
