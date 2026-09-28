@@ -24,10 +24,15 @@ data class CatalogApp(
     val accent: Color,
     val category: AppCategory,
     val isOfficial: Boolean = true,
+    val author: String = "LuntikVisuals",
     val permissions: List<String> = emptyList()
 ) {
     val downloadUrlFallback: String
-        get() = "https://github.com/$githubRepo/releases/latest/download/$apkAssetName"
+        get() = if (apkAssetName.isNotBlank()) {
+            "https://github.com/$githubRepo/releases/latest/download/$apkAssetName"
+        } else {
+            "https://github.com/$githubRepo/releases/latest"
+        }
 }
 
 object Catalog {
@@ -51,7 +56,7 @@ object Catalog {
             name = "LuntikStore",
             tagline = "Этот магазин",
             description = "Центральный магазин приложений Luntik.",
-            version = "0.4.1",
+            version = "0.5.0",
             packageName = "com.luntik.store",
             githubRepo = "LuntikVisuals/LuntikStore",
             apkAssetName = "LuntikStore.apk",
@@ -91,9 +96,9 @@ object Catalog {
         CatalogApp(
             id = "snake",
             name = "Змейка",
-            tagline = "Классическая 2D-аркада",
-            description = "Змейка: свайп или кнопки, счёт и рекорд. APK с GitHub Releases Snake2D.",
-            version = "1.0.0",
+            tagline = "2D-аркада · монеты и скины",
+            description = "Змейка Luntik: режимы, магазин, кейсы, XP.",
+            version = "1.1.0",
             packageName = "com.luntik.snake",
             githubRepo = "LuntikVisuals/Snake2D",
             apkAssetName = "Snake2D.apk",
@@ -106,7 +111,7 @@ object Catalog {
             id = "dopros",
             name = "Допрос",
             tagline = "Хоррор-детектив · 2D",
-            description = "Допрос подозреваемых: ток, фонарик, шкалы страха, звёзды. Обучение — 2 человека.",
+            description = "Допрос подозреваемых: ток, фонарик, шкалы страха.",
             version = "0.1.0",
             packageName = "com.luntik.dopros",
             githubRepo = "LuntikVisuals/Dopros",
@@ -115,6 +120,142 @@ object Catalog {
             accent = Color(0xFFC45C5C),
             category = AppCategory.GAMES,
             permissions = listOf()
+        ),
+        // ——— FOSS с GitHub (сторонние авторы) ———
+        CatalogApp(
+            id = "shatteredpd",
+            name = "Shattered Pixel Dungeon",
+            tagline = "Roguelike RPG",
+            description = "Пошаговый рогалик в подземелье. Автор: Evan (00-Evan). Лицензия GPL-3.0. Не связано с Luntik.",
+            version = "latest",
+            packageName = "com.shatteredpixel.shatteredpixeldungeon",
+            githubRepo = "00-Evan/shattered-pixel-dungeon",
+            apkAssetName = "",
+            repoUrl = "https://github.com/00-Evan/shattered-pixel-dungeon",
+            accent = Color(0xFFD4A574),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "00-Evan (Evan)"
+        ),
+        CatalogApp(
+            id = "mindustry",
+            name = "Mindustry",
+            tagline = "Tower defense + factories",
+            description = "Строй заводы и турели, отбивай волны. Автор: Anuken. Лицензия GPL-3.0. Не связано с Luntik.",
+            version = "latest",
+            packageName = "io.anuke.mindustry",
+            githubRepo = "Anuken/Mindustry",
+            apkAssetName = "",
+            repoUrl = "https://github.com/Anuken/Mindustry",
+            accent = Color(0xFF6BCB77),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "Anuken"
+        ),
+        CatalogApp(
+            id = "unciv",
+            name = "Unciv",
+            tagline = "Стратегия 4X · Civ-like",
+            description = "Развивай цивилизацию: наука, армия, дипломатия. Автор: yairm210. Лицензия MPL-2.0. Не связано с Luntik.",
+            version = "latest",
+            packageName = "com.unciv.app",
+            githubRepo = "yairm210/Unciv",
+            apkAssetName = "",
+            repoUrl = "https://github.com/yairm210/Unciv",
+            accent = Color(0xFF4FC3F7),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "yairm210"
+        ),
+        CatalogApp(
+            id = "astroloop",
+            name = "Astro Loop",
+            tagline = "Космический roguelike-шутер",
+            description = "Офлайн-шутер без рекламы и трекинга. Автор: PubDeer. Лицензия GPL-3.0. Не связано с Luntik.",
+            version = "latest",
+            packageName = "com.astroloop.game",
+            githubRepo = "PubDeer/astro-loop",
+            apkAssetName = "",
+            repoUrl = "https://github.com/PubDeer/astro-loop",
+            accent = Color(0xFF7E57C2),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "PubDeer"
+        ),
+        CatalogApp(
+            id = "ricochlime",
+            name = "Ricochlime",
+            tagline = "Шутер с рикошетом",
+            description = "Снаряды отскакивают и косят врагов. Автор: Adil Hanney (adil192). AGPL-3.0. Не связано с Luntik.",
+            version = "latest",
+            packageName = "com.adilhanney.ricochlime",
+            githubRepo = "adil192/ricochlime",
+            apkAssetName = "",
+            repoUrl = "https://github.com/adil192/ricochlime",
+            accent = Color(0xFFFF8A65),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "Adil Hanney"
+        ),
+        CatalogApp(
+            id = "cavedroid",
+            name = "CaveDroid",
+            tagline = "2D sandbox",
+            description = "Копай, строй, крафть — 2D песочница. Автор: fredboy. Не связано с Luntik.",
+            version = "latest",
+            packageName = "com.github.fredboy.cavedroid",
+            githubRepo = "fredboy/cavedroid",
+            apkAssetName = "",
+            repoUrl = "https://github.com/fredboy/cavedroid",
+            accent = Color(0xFF8D6E63),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "fredboy"
+        ),
+        CatalogApp(
+            id = "retrowars",
+            name = "Retrowars",
+            tagline = "Ретро multiplayer",
+            description = "Несколько ретро-игр друг против друга. Автор: retrowars. GPL-3.0. Не связано с Luntik.",
+            version = "latest",
+            packageName = "com.retrowars",
+            githubRepo = "retrowars/retrowars",
+            apkAssetName = "",
+            repoUrl = "https://github.com/retrowars/retrowars",
+            accent = Color(0xFFFFEB3B),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "retrowars"
+        ),
+        CatalogApp(
+            id = "openttd",
+            name = "OpenTTD",
+            tagline = "Транспортный симулятор",
+            description = "Строй сеть перевозок (порт OpenTTD). Автор порта: pelya. GPL. Не связано с Luntik.",
+            version = "latest",
+            packageName = "org.openttd.sdl",
+            githubRepo = "pelya/openttd-android",
+            apkAssetName = "",
+            repoUrl = "https://github.com/pelya/openttd-android",
+            accent = Color(0xFF26A69A),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "pelya / OpenTTD"
+        ),
+        CatalogApp(
+            id = "rectball",
+            name = "Rectball",
+            tagline = "Цветной puzzle",
+            description = "Головоломка на поле. Автор: danirod. GPL-3.0. Не связано с Luntik.",
+            version = "latest",
+            packageName = "es.danirod.rectball",
+            githubRepo = "danirod/rectball",
+            apkAssetName = "",
+            repoUrl = "https://github.com/danirod/rectball",
+            accent = Color(0xFFEC407A),
+            category = AppCategory.GAMES,
+            isOfficial = false,
+            author = "danirod"
         )
     )
 
