@@ -12,7 +12,7 @@ data class Review(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-/** Локальные отзывы на устройстве. Позже можно синхронизировать с сервером. */
+/** Локальные отзывы на устройстве. */
 class ReviewStore(context: Context) {
 
     private val prefs = context.getSharedPreferences("luntik_reviews", Context.MODE_PRIVATE)
@@ -28,7 +28,7 @@ class ReviewStore(context: Context) {
                         Review(
                             appId = o.getString("appId"),
                             author = o.getString("author"),
-                            rating = o.getInt("rating"),
+                            rating = o.getInt("rating").coerceIn(1, 5),
                             text = o.getString("text"),
                             timestamp = o.optLong("timestamp", 0L)
                         )
@@ -40,9 +40,23 @@ class ReviewStore(context: Context) {
         }
     }
 
+    fun reviewCount(appId: String): Int = getReviews(appId).size
+
+    fun averageRating(appId: String): Float {
+        val list = getReviews(appId)
+        if (list.isEmpty()) return 0f
+        return list.map { it.rating }.average().toFloat()
+    }
+
+    /** Добавляет отзыв. Если у этого автора уже есть — заменяет. */
     fun addReview(review: Review) {
         val list = getReviews(review.appId).toMutableList()
-        list.add(0, review)
+        list.removeAll { it.author.equals(review.author, ignoreCase = true) }
+        list.add(0, review.copy(rating = review.rating.coerceIn(1, 5)))
+        save(review.appId, list)
+    }
+
+    private fun save(appId: String, list: List<Review>) {
         val arr = JSONArray()
         list.forEach { r ->
             arr.put(
@@ -54,12 +68,6 @@ class ReviewStore(context: Context) {
                     .put("timestamp", r.timestamp)
             )
         }
-        prefs.edit().putString("reviews_${review.appId}", arr.toString()).apply()
-    }
-
-    fun averageRating(appId: String): Float {
-        val list = getReviews(appId)
-        if (list.isEmpty()) return 0f
-        return list.map { it.rating }.average().toFloat()
+        prefs.edit().putString("reviews_$appId", arr.toString()).apply()
     }
 }
