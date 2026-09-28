@@ -7,6 +7,7 @@ enum class AppCategory(val title: String) {
     TOOLS("Инструменты"),
     AI("ИИ"),
     WIDGETS("Виджеты"),
+    GAMES("Игры"),
     SYSTEM("Системные")
 }
 
@@ -17,7 +18,6 @@ data class CatalogApp(
     val description: String,
     val version: String,
     val packageName: String,
-    /** owner/repo для GitHub API */
     val githubRepo: String,
     val apkAssetName: String,
     val repoUrl: String,
@@ -36,7 +36,7 @@ object Catalog {
             id = "terminal",
             name = "LuntikTerminal",
             tagline = "Скрытый установщик",
-            description = "Терминал в стиле Windows CMD. Через него впервые устанавливается LuntikStore. После установки ярлык скрывается — открыть Terminal можно только из магазина.",
+            description = "Терминал в стиле Windows CMD. Через него впервые устанавливается LuntikStore.",
             version = "0.3.0",
             packageName = "com.luntik.terminal",
             githubRepo = "LuntikVisuals/LuntikTerminal",
@@ -50,8 +50,8 @@ object Catalog {
             id = "store",
             name = "LuntikStore",
             tagline = "Этот магазин",
-            description = "Центральный магазин приложений Luntik. Категории, отзывы, проверка LuntikAi, обновления с GitHub.",
-            version = "0.3.0",
+            description = "Центральный магазин приложений Luntik.",
+            version = "0.4.0",
             packageName = "com.luntik.store",
             githubRepo = "LuntikVisuals/LuntikStore",
             apkAssetName = "LuntikStore.apk",
@@ -64,7 +64,7 @@ object Catalog {
             id = "ai",
             name = "LuntikAi",
             tagline = "Локальный ИИ-агент",
-            description = "Локальный самообучающийся ИИ для Android. Учится на твоих текстах, навыки, песочница кода, личности. Работает на устройстве.",
+            description = "Локальный ИИ для Android. Учится на устройстве.",
             version = "0.5.0",
             packageName = "com.luntik.ai",
             githubRepo = "LuntikVisuals/LuntikAi",
@@ -78,7 +78,7 @@ object Catalog {
             id = "lumina",
             name = "Lumina",
             tagline = "Liquid glass виджеты",
-            description = "Premium Android виджеты с эффектом жидкого стекла: музыка, часы, батарея, таймер фокуса, цитаты и ambient.",
+            description = "Виджеты с эффектом жидкого стекла.",
             version = "0.2.0",
             packageName = "com.lumina.widgets",
             githubRepo = "LuntikVisuals/Lumina",
@@ -86,6 +86,20 @@ object Catalog {
             repoUrl = "https://github.com/LuntikVisuals/Lumina",
             accent = Color(0xFFFFB8E0),
             category = AppCategory.WIDGETS,
+            permissions = listOf()
+        ),
+        CatalogApp(
+            id = "snake",
+            name = "Змейка",
+            tagline = "Классическая 2D-аркада",
+            description = "Змейка: свайп или кнопки, счёт и рекорд.",
+            version = "1.0.0",
+            packageName = "com.luntik.snake",
+            githubRepo = "LuntikVisuals/Snake2D",
+            apkAssetName = "Snake2D.apk",
+            repoUrl = "https://github.com/LuntikVisuals/Snake2D",
+            accent = Color(0xFF3DFF6E),
+            category = AppCategory.GAMES,
             permissions = listOf()
         )
     )
