@@ -1,15 +1,18 @@
 package com.luntik.store
 
 import android.content.Context
+import android.os.Build
 import android.os.Environment
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 /**
- * Папка LuntikStore в Documents (или filesDir):
- * 1_Аккаунт — логин (хеш), WARNING txt
- * 2_Профиль — ник, уровень, достижения (файл для друзей)
+ * Папка LuntikStore:
+ * предпочтительно Documents/LuntikStore (видна в проводнике),
+ * иначе Android/data/.../files/Documents/LuntikStore.
+ *
+ * 1_Аккаунт — логин (хеш) + WARNING
+ * 2_Профиль — ник для друзей
  * 3_Друзья — чужие профили
  */
 object LocalFolders {
@@ -18,14 +21,32 @@ object LocalFolders {
     private const val ACC = "1_Аккаунт"
     private const val PROF = "2_Профиль"
     private const val FRIENDS = "3_Друзья"
-    private const val WARN =
-        "!!!СРОЧНО ПРОЧТИ МЕНЯ ЭТО ВАЖНО!!!!.txt"
+    private const val WARN = "!!!СРОЧНО ПРОЧТИ МЕНЯ ЭТО ВАЖНО!!!!.txt"
 
     fun root(context: Context): File {
-        val base = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            ?: context.filesDir
-        return File(base, ROOT).also { it.mkdirs() }
+        // 1) Публичные Документы — проще найти в файловом менеджере
+        try {
+            val publicDocs = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+            val publicRoot = File(publicDocs, ROOT)
+            if (publicRoot.exists() || publicRoot.mkdirs()) {
+                if (publicRoot.canWrite()) return publicRoot
+            }
+        } catch (_: Exception) { }
+
+        // 2) App-specific external Documents
+        try {
+            val ext = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            if (ext != null) {
+                val r = File(ext, ROOT)
+                if (r.exists() || r.mkdirs()) return r
+            }
+        } catch (_: Exception) { }
+
+        // 3) Internal
+        return File(context.filesDir, ROOT).also { it.mkdirs() }
     }
+
+    fun rootPath(context: Context): String = root(context).absolutePath
 
     fun ensureStructure(context: Context) {
         val r = root(context)
@@ -44,7 +65,19 @@ object LocalFolders {
                 Это только твои личные данные.
 
                 Для друзей отправляй файл только из папки 2_Профиль.
+
+                Путь к корневой папке смотри в Настройки → Друзья.
                 """.trimIndent()
+            )
+        }
+        // README в корне чтобы папка точно создалась и была заметна
+        val readme = File(r, "ЧИТАЙ_МЕНЯ.txt")
+        if (!readme.exists()) {
+            readme.writeText(
+                "LuntikStore data folder\n" +
+                    "1_Аккаунт — секретно\n" +
+                    "2_Профиль — можно делиться с друзьями\n" +
+                    "3_Друзья — чужие профили\n"
             )
         }
     }
