@@ -65,36 +65,29 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         unlockHighRefreshRate()
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
-        }
         UpdateNotifier.ensureChannel(this)
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        LocalFolders.ensureStructure(this)
         setContent { StoreRoot() }
     }
 
     private fun unlockHighRefreshRate() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    display
+                val d = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    this.display
                 } else {
                     @Suppress("DEPRECATION")
                     windowManager.defaultDisplay
                 }
-                val modes = display?.supportedModes ?: return
-                val best = modes.maxByOrNull { it.refreshRate } ?: return
+                val best = d?.supportedModes?.maxByOrNull { it.refreshRate } ?: return
                 val lp = window.attributes
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    lp.preferredDisplayModeId = best.modeId
-                }
+                lp.preferredDisplayModeId = best.modeId
                 window.attributes = lp
                 window.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
             }
@@ -102,7 +95,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Auth, Catalog, Detail }
+private enum class Screen { Auth, Main, Detail, Cart, Downloads }
 
 @Composable
 fun StoreRoot() {
@@ -110,12 +103,17 @@ fun StoreRoot() {
     val accountStore = remember { AccountStore(context) }
     val settings = remember { SettingsStore(context) }
     val wishlist = remember { WishlistStore(context) }
+    val cart = remember { CartStore(context) }
+    val downloads = remember { DownloadCenter() }
+
     var screen by remember {
-        mutableStateOf(if (accountStore.isLoggedIn()) Screen.Catalog else Screen.Auth)
+        mutableStateOf(if (accountStore.isLoggedIn()) Screen.Main else Screen.Auth)
     }
     var selectedId by remember { mutableStateOf<String?>(null) }
     var updatesChecked by remember { mutableStateOf(false) }
-    var wishTick by remember { mutableIntStateOf(0) }
+    var cloudUnlocked by remember {
+        mutableStateOf(!settings.cloudPasswordEnabled || !accountStore.isLoggedIn())
+    }
 
     val accent = settings.accentColor()
     val isLight = settings.theme == ThemeMode.LIGHT
@@ -124,19 +122,28 @@ fun StoreRoot() {
     val text = if (isLight) Color(0xFF12121A) else Color(0xFFF2F2F7)
     val textDim = if (isLight) Color(0xFF555566) else Color.White.copy(alpha = 0.55f)
     val glass = if (isLight) Color.Black.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.11f)
-    val border = if (isLight) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.13f)
+    val border = if (isLight) Color.Black.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.13f)
+
+    SideEffect {
+        val w = (context as? ComponentActivity)?.window ?: return@SideEffect
+        WindowInsetsControllerCompat(w, w.decorView).apply {
+            isAppearanceLightStatusBars = isLight
+            isAppearanceLightNavigationBars = isLight
+        }
+    }
 
     val wallBmp = remember(settings.wallpaperPath) {
         settings.wallpaperPath?.let { p ->
             try {
-                val f = File(p)
-                if (f.exists()) BitmapFactory.decodeFile(p) else null
-            } catch (_: Exception) { null }
+                if (File(p).exists()) BitmapFactory.decodeFile(p) else null
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
     LaunchedEffect(screen) {
-        if (screen != Screen.Catalog || updatesChecked) return@LaunchedEffect
+        if (screen != Screen.Main || updatesChecked) return@LaunchedEffect
         updatesChecked = true
         val outdated = mutableListOf<String>()
         withContext(Dispatchers.IO) {
@@ -165,82 +172,105 @@ fun StoreRoot() {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (isLight) 0.35f else 0.55f)))
+            Box(
+                Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = if (isLight) 0.4f else 0.55f))
+            )
         } else {
             Box(
-                Modifier
-                    .fillMaxSize()
+                Modifier.fillMaxSize()
                     .background(Brush.verticalGradient(listOf(bg0, bg1, bg0)))
             )
         }
 
         when {
-            screen == Screen.Auth -> AuthScreen(accountStore, accent, text, textDim, glass, border) {
+            screen == Screen.Auth -> AuthScreen(
+                accountStore, accent, text, textDim, glass, border
+            ) {
                 accountStore.setSession(true)
-                screen = Screen.Catalog
+                cloudUnlocked = !settings.cloudPasswordEnabled
+                screen = Screen.Main
             }
+
+            accountStore.isLoggedIn() && settings.cloudPasswordEnabled && !cloudUnlocked -> {
+                CloudLockScreen(
+                    accountStore, accent, text, textDim, glass, border,
+                    onOk = { cloudUnlocked = true }
+                )
+            }
+
             selectedId != null -> {
                 val app = Catalog.byId(selectedId!!)
                 if (app != null) {
                     DetailScreen(
-                        app = app,
-                        accent = accent,
-                        text = text,
-                        textDim = textDim,
-                        glass = glass,
-                        border = border,
-                        wishlist = wishlist,
-                        wishTick = wishTick,
-                        onWish = { wishTick++ },
+                        app, accent, text, textDim, glass, border,
+                        wishlist, cart, downloads,
                         onBack = { selectedId = null }
                     )
                 } else selectedId = null
             }
+
+            screen == Screen.Cart -> CartScreen(
+                cart, accent, text, textDim, glass, border,
+                onBack = { screen = Screen.Main },
+                onOpen = { selectedId = it }
+            )
+
+            screen == Screen.Downloads -> DownloadsScreen(
+                downloads, accent, text, textDim, glass, border,
+                onBack = { screen = Screen.Main }
+            )
+
             else -> {
                 var tab by remember { mutableStateOf(MainTab.Apps) }
                 Column(Modifier.fillMaxSize()) {
+                    // top bar cart / downloads
+                    Row(
+                        Modifier.fillMaxWidth().statusBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val cartN = cart.version.let { cart.ids().size }
+                        Text(
+                            "Корзина${if (cartN > 0) " ($cartN)" else ""}",
+                            color = accent, fontSize = 13.sp,
+                            modifier = Modifier.clickable { screen = Screen.Cart }
+                                .padding(8.dp)
+                        )
+                        Text(
+                            "Загрузки",
+                            color = textDim, fontSize = 13.sp,
+                            modifier = Modifier.clickable { screen = Screen.Downloads }
+                                .padding(8.dp)
+                        )
+                    }
                     Box(Modifier.weight(1f)) {
                         when (tab) {
                             MainTab.Apps -> CatalogScreen(
-                                account = accountStore.current(),
-                                settings = settings,
-                                wishlist = wishlist,
-                                wishTick = wishTick,
-                                accent = accent,
-                                text = text,
-                                textDim = textDim,
-                                glass = glass,
-                                border = border,
-                                onOpen = { selectedId = it },
-                                onWish = { wishTick++ }
+                                accountStore.current(), settings, wishlist,
+                                accent, text, textDim, glass, border,
+                                onOpen = { selectedId = it }
                             )
                             MainTab.Library -> LibraryScreen(
-                                wishlist = wishlist,
-                                wishTick = wishTick,
-                                accent = accent,
-                                text = text,
-                                textDim = textDim,
-                                glass = glass,
-                                border = border,
-                                onOpen = { selectedId = it },
-                                onWish = { wishTick++ }
+                                wishlist, accent, text, textDim, glass, border,
+                                onOpen = { selectedId = it }
                             )
                             MainTab.Settings -> SettingsScreen(
-                                settings = settings,
-                                accountStore = accountStore,
-                                accent = accent
+                                settings, accountStore, accent, text, textDim, glass, border
                             )
                             MainTab.Profile -> ProfileTab(
-                                account = accountStore.current(),
+                                accountStore.current(),
                                 onLogout = {
                                     accountStore.setSession(false)
+                                    cloudUnlocked = false
                                     screen = Screen.Auth
                                 },
                                 accent = accent
                             )
                         }
                     }
-                    StoreBottomBar(tab = tab, onTab = { tab = it }, accent = accent)
+                    StoreBottomBar(tab, { tab = it }, accent)
                 }
             }
         }
@@ -248,23 +278,48 @@ fun StoreRoot() {
 }
 
 @Composable
+private fun CloudLockScreen(
+    accountStore: AccountStore,
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
+    onOk: () -> Unit
+) {
+    var pw by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf<String?>(null) }
+    Column(
+        Modifier.fillMaxSize().statusBarsPadding().padding(24.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Облачный пароль", color = text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Text("Введи пароль аккаунта, чтобы открыть Store", color = textDim, fontSize = 14.sp)
+        Spacer(Modifier.height(16.dp))
+        Field("Пароль", pw, text, glass, border, accent, password = true) { pw = it }
+        err?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = Color(0xFFFF6B7A), fontSize = 13.sp)
+        }
+        Spacer(Modifier.height(16.dp))
+        PrimaryButton("Разблокировать", accent) {
+            if (accountStore.verifyPassword(pw)) onOk()
+            else err = "Неверный пароль"
+        }
+    }
+}
+
+@Composable
 private fun AuthScreen(
     accountStore: AccountStore,
-    accent: Color,
-    text: Color,
-    textDim: Color,
-    glass: Color,
-    border: Color,
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
     onDone: () -> Unit
 ) {
     var isRegister by remember { mutableStateOf(true) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var display by remember { mutableStateOf("") }
+    var terms by remember { mutableStateOf(accountStore.hasAcceptedTerms()) }
     var error by remember { mutableStateOf<String?>(null) }
 
     Column(
-        Modifier.fillMaxSize().statusBarsPadding().padding(24.dp),
+        Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Text("LuntikStore", color = text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -272,8 +327,7 @@ private fun AuthScreen(
         Spacer(Modifier.height(8.dp))
         Text(
             "Если тебе нет совершеннолетия — прочитай соглашение с родителями/опекунами.",
-            color = textDim.copy(alpha = 0.8f),
-            fontSize = 12.sp
+            color = textDim, fontSize = 12.sp
         )
         Spacer(Modifier.height(16.dp))
         Field("Логин", username, text, glass, border, accent) { username = it }
@@ -283,14 +337,34 @@ private fun AuthScreen(
             Spacer(Modifier.height(10.dp))
         }
         Field("Пароль", password, text, glass, border, accent, password = true) { password = it }
+        if (isRegister) {
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.fillMaxWidth().clickable { terms = !terms },
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(if (terms) "☑" else "☐", color = accent, fontSize = 18.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Я прочитал(а) и принимаю Пользовательское соглашение. " +
+                        "Аккаунт предоставляется по лицензии и не является собственностью пользователя. " +
+                        "Разработчик не несёт ответственности за вирусы и ущерб.",
+                    color = textDim, fontSize = 11.sp
+                )
+            }
+        }
         error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = Color(0xFFFF6B7A), fontSize = 13.sp)
         }
         Spacer(Modifier.height(16.dp))
         PrimaryButton(if (isRegister) "Создать аккаунт" else "Войти", accent) {
-            error = if (isRegister) accountStore.register(username, password, display)
-            else accountStore.login(username, password)
+            if (isRegister) {
+                if (terms) accountStore.acceptTerms()
+                error = accountStore.register(username, password, display)
+            } else {
+                error = accountStore.login(username, password)
+            }
             if (error == null) {
                 accountStore.setSession(true)
                 onDone()
@@ -299,8 +373,7 @@ private fun AuthScreen(
         Spacer(Modifier.height(12.dp))
         Text(
             if (isRegister) "Уже есть аккаунт — войти" else "Нет аккаунта — регистрация",
-            color = accent,
-            fontSize = 13.sp,
+            color = accent, fontSize = 13.sp,
             modifier = Modifier.clickable { isRegister = !isRegister; error = null }
         )
     }
@@ -311,7 +384,7 @@ private fun Field(
     label: String, value: String, text: Color, glass: Color, border: Color, accent: Color,
     password: Boolean = false, onChange: (String) -> Unit
 ) {
-    Text(label, color = text.copy(alpha = 0.4f), fontSize = 12.sp)
+    Text(label, color = text.copy(alpha = 0.45f), fontSize = 12.sp)
     Spacer(Modifier.height(4.dp))
     Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(glass)
@@ -335,32 +408,24 @@ private fun CatalogScreen(
     account: Account?,
     settings: SettingsStore,
     wishlist: WishlistStore,
-    wishTick: Int,
-    accent: Color,
-    text: Color,
-    textDim: Color,
-    glass: Color,
-    border: Color,
-    onOpen: (String) -> Unit,
-    onWish: () -> Unit
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
+    onOpen: (String) -> Unit
 ) {
     val context = LocalContext.current
     val reviewStore = remember { ReviewStore(context) }
     var cat by remember { mutableStateOf(AppCategory.ALL) }
     val list = Catalog.byCategory(cat)
     val promo = remember { PromoCalendar.activePromoPercent() }
+    val wishVer = wishlist.version
 
-    @Suppress("UNUSED_VARIABLE")
-    val tick = wishTick
-
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+    Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("LuntikStore", color = text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("LuntikStore", color = text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(account?.displayName ?: "", color = textDim, fontSize = 12.sp)
             }
             promo?.let { (pct, name) ->
@@ -372,30 +437,24 @@ private fun CatalogScreen(
             val ads = Catalog.featured()
             if (ads.isNotEmpty()) {
                 Row(
-                    Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     ads.forEach { app ->
                         Box(
-                            Modifier
-                                .width(160.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                            Modifier.width(150.dp).clip(RoundedCornerShape(14.dp))
                                 .background(app.accent.copy(alpha = 0.22f))
                                 .border(1.dp, border, RoundedCornerShape(14.dp))
-                                .clickable { onOpen(app.id) }
-                                .padding(12.dp)
+                                .clickable { onOpen(app.id) }.padding(12.dp)
                         ) {
                             Column {
                                 Text("Реклама", color = textDim, fontSize = 10.sp)
-                                Text(app.name, color = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text(app.tagline, color = textDim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(app.name, color = text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
 
@@ -416,39 +475,27 @@ private fun CatalogScreen(
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
 
         val cols = settings.grid.columns
+        // equal columns via Fixed + fillMaxWidth cards
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
-            items(list, key = { it.id }) { app ->
+            items(list, key = { it.id + wishVer }) { app ->
                 val avg = reviewStore.averageRating(app.id)
                 val cnt = reviewStore.reviewCount(app.id)
                 val wished = wishlist.isWished(app.id)
-                val wDisc = wishlist.wishlistDiscountPercent(app.id)
-                val best = PromoCalendar.bestDiscount(wDisc)
+                val best = PromoCalendar.bestDiscount(wishlist.wishlistDiscountPercent(app.id))
                 AppCard(
-                    app = app,
-                    avg = avg,
-                    cnt = cnt,
-                    wished = wished,
-                    discount = best,
-                    accent = accent,
-                    text = text,
-                    textDim = textDim,
-                    glass = glass,
-                    border = border,
-                    compact = cols > 1,
+                    app, avg, cnt, wished, best,
+                    accent, text, textDim, glass, border, cols > 1,
                     onOpen = { onOpen(app.id) },
-                    onToggleWish = {
-                        wishlist.toggle(app.id)
-                        onWish()
-                    }
+                    onToggleWish = { wishlist.toggle(app.id) }
                 )
             }
         }
@@ -458,33 +505,25 @@ private fun CatalogScreen(
 @Composable
 private fun AppCard(
     app: CatalogApp,
-    avg: Float,
-    cnt: Int,
-    wished: Boolean,
-    discount: Pair<Int, String>,
-    accent: Color,
-    text: Color,
-    textDim: Color,
-    glass: Color,
-    border: Color,
+    avg: Float, cnt: Int, wished: Boolean, discount: Pair<Int, String>,
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
     compact: Boolean,
     onOpen: () -> Unit,
     onToggleWish: () -> Unit
 ) {
     Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(glass)
+        Modifier.fillMaxWidth().defaultMinSize(minHeight = if (compact) 120.dp else 100.dp)
+            .clip(RoundedCornerShape(16.dp)).background(glass)
             .border(1.dp, border, RoundedCornerShape(16.dp))
             .clickable(onClick = onOpen)
             .padding(if (compact) 10.dp else 14.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(
-                Modifier
-                    .size(if (compact) 36.dp else 44.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                Modifier.size(if (compact) 34.dp else 44.dp).clip(RoundedCornerShape(12.dp))
                     .background(app.accent.copy(alpha = 0.25f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -494,20 +533,28 @@ private fun AppCard(
             Text(
                 if (wished) "★" else "☆",
                 color = if (wished) Color(0xFFFFC857) else textDim,
-                fontSize = 20.sp,
-                modifier = Modifier.clickable { onToggleWish() }
+                fontSize = 22.sp,
+                modifier = Modifier
+                    .clickable { onToggleWish() }
+                    .padding(4.dp)
             )
         }
         Spacer(Modifier.height(8.dp))
-        Text(app.name, color = text, fontSize = if (compact) 13.sp else 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            app.name, color = text,
+            fontSize = if (compact) 13.sp else 16.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
         if (!compact) {
             Text(app.tagline, color = textDim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.height(4.dp))
-        StarRow(rating = avg, count = cnt, compact = true, star = Color(0xFFFFC857), mute = textDim)
+        StarRow(avg, cnt, true, Color(0xFFFFC857), textDim)
         if (app.price > 0 && discount.first > 0) {
-            val finalPrice = (app.price * (100 - discount.first) / 100)
-            Text("${discount.second} −${discount.first}% · $finalPrice", color = accent, fontSize = 11.sp)
+            val fp = app.price * (100 - discount.first) / 100
+            Text("${discount.second} −${discount.first}% · $fp", color = accent, fontSize = 11.sp)
         } else if (app.price > 0) {
             Text("${app.price} валюты", color = textDim, fontSize = 11.sp)
         } else {
@@ -519,53 +566,71 @@ private fun AppCard(
 @Composable
 private fun LibraryScreen(
     wishlist: WishlistStore,
-    wishTick: Int,
-    accent: Color,
-    text: Color,
-    textDim: Color,
-    glass: Color,
-    border: Color,
-    onOpen: (String) -> Unit,
-    onWish: () -> Unit
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
+    onOpen: (String) -> Unit
 ) {
-    @Suppress("UNUSED_VARIABLE")
-    val tick = wishTick
-    val items = wishlist.all().mapNotNull { (id, _) -> Catalog.byId(id)?.let { it to wishlist.wishlistDiscountPercent(id) } }
+    val context = LocalContext.current
+    val wishVer = wishlist.version
+    val installed = remember {
+        Catalog.apps.filter { ApkDownloader.isInstalled(context, it.packageName) }
+    }
+    val wished = wishlist.all().mapNotNull { Catalog.byId(it.first) }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp)) {
-        Text("Библиотека", color = text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        Text("Желаемое и скидки за ожидание", color = textDim, fontSize = 13.sp)
-        Spacer(Modifier.height(16.dp))
-        if (items.isEmpty()) {
-            Text("Список желаемого пуст — нажми ☆ у приложения", color = textDim, fontSize = 14.sp)
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Text("Библиотека", color = text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+
+        Text("Установленные (${installed.size})", color = text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        if (installed.isEmpty()) {
+            Text("Пока ничего не установлено из каталога", color = textDim, fontSize = 13.sp)
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(items, key = { it.first.id }) { (app, disc) ->
+            installed.forEach { app ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(glass)
+                        .border(1.dp, border, RoundedCornerShape(12.dp))
+                        .clickable { onOpen(app.id) }.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(app.name, color = text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        val ver = ApkDownloader.installedVersionName(context, app.packageName)
+                        Text("v${ver ?: "?"}", color = textDim, fontSize = 12.sp)
+                    }
+                    Text("Открыть", color = accent, fontSize = 13.sp,
+                        modifier = Modifier.clickable {
+                            ApkDownloader.openApp(context, app.packageName)
+                        })
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Желаемое (${wished.size}) · tick $wishVer", color = text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        if (wished.isEmpty()) {
+            Text("Нажми ☆ у приложения в каталоге", color = textDim, fontSize = 13.sp)
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(wished, key = { it.id }) { app ->
                     val days = wishlist.daysInWishlist(app.id)
+                    val disc = wishlist.wishlistDiscountPercent(app.id)
                     Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(glass)
-                            .border(1.dp, border, RoundedCornerShape(14.dp))
-                            .clickable { onOpen(app.id) }
-                            .padding(14.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(glass)
+                            .border(1.dp, border, RoundedCornerShape(12.dp))
+                            .clickable { onOpen(app.id) }.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(app.name, color = text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                            Text("$days дн. в желаемом" +
-                                if (disc > 0) " · скидка $disc%" else "",
-                                color = if (disc > 0) accent else textDim,
-                                fontSize = 12.sp
+                            Text(app.name, color = text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "$days дн." + if (disc > 0) " · −$disc%" else "",
+                                color = if (disc > 0) accent else textDim, fontSize = 12.sp
                             )
                         }
                         Text("★", color = Color(0xFFFFC857), fontSize = 20.sp,
-                            modifier = Modifier.clickable {
-                                wishlist.toggle(app.id)
-                                onWish()
-                            })
+                            modifier = Modifier.clickable { wishlist.toggle(app.id) })
                     }
                 }
             }
@@ -574,7 +639,82 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun StarRow(rating: Float, count: Int, compact: Boolean = false, star: Color, mute: Color) {
+private fun CartScreen(
+    cart: CartStore,
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
+    onBack: () -> Unit,
+    onOpen: (String) -> Unit
+) {
+    val ver = cart.version
+    val apps = cart.ids().mapNotNull { Catalog.byId(it) }
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp)) {
+        Text("← Назад", color = accent, modifier = Modifier.clickable(onClick = onBack))
+        Spacer(Modifier.height(8.dp))
+        Text("Корзина ($ver)", color = text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        if (apps.isEmpty()) {
+            Text("Пусто — добавь из карточки приложения", color = textDim, fontSize = 14.sp)
+        } else {
+            apps.forEach { app ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(glass)
+                        .border(1.dp, border, RoundedCornerShape(12.dp))
+                        .clickable { onOpen(app.id) }.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(app.name, color = text, fontWeight = FontWeight.Bold)
+                        Text(if (app.price > 0) "${app.price} валюты" else "Бесплатно", color = textDim, fontSize = 12.sp)
+                    }
+                    Text("Убрать", color = Color(0xFFFF6B7A), fontSize = 13.sp,
+                        modifier = Modifier.clickable { cart.remove(app.id) })
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadsScreen(
+    downloads: DownloadCenter,
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
+    onBack: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp)) {
+        Text("← Назад", color = accent, modifier = Modifier.clickable(onClick = onBack))
+        Spacer(Modifier.height(8.dp))
+        Text("Загрузки", color = text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        if (downloads.items.isEmpty()) {
+            Text("Активных загрузок нет", color = textDim, fontSize = 14.sp)
+        } else {
+            downloads.items.forEach { d ->
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(glass)
+                        .border(1.dp, border, RoundedCornerShape(12.dp)).padding(12.dp)
+                ) {
+                    Text(d.name, color = text, fontWeight = FontWeight.Bold)
+                    Text(d.status, color = textDim, fontSize = 12.sp)
+                    Text("Откуда: ${d.fromUrl.take(48)}…", color = textDim, fontSize = 11.sp)
+                    Text("Куда: ${d.toPath}", color = textDim, fontSize = 11.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(border)) {
+                        Box(
+                            Modifier.fillMaxHeight().fillMaxWidth(d.progress.coerceIn(0f, 1f))
+                                .background(accent)
+                        )
+                    }
+                    Text("${(d.progress * 100).toInt()}%", color = accent, fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StarRow(rating: Float, count: Int, compact: Boolean, star: Color, mute: Color) {
     val full = rating.toInt().coerceIn(0, 5)
     val label = if (count == 0) "Нет оценок" else String.format("%.1f", rating) + " · $count"
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -592,30 +732,12 @@ private fun StarRow(rating: Float, count: Int, compact: Boolean = false, star: C
 }
 
 @Composable
-private fun StarPicker(value: Int, onChange: (Int) -> Unit, star: Color, mute: Color) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        (1..5).forEach { i ->
-            Text(
-                if (i <= value) "★" else "☆",
-                color = if (i <= value) star else mute,
-                fontSize = 28.sp,
-                modifier = Modifier.clickable { onChange(i) }
-            )
-        }
-    }
-}
-
-@Composable
 private fun DetailScreen(
     app: CatalogApp,
-    accent: Color,
-    text: Color,
-    textDim: Color,
-    glass: Color,
-    border: Color,
+    accent: Color, text: Color, textDim: Color, glass: Color, border: Color,
     wishlist: WishlistStore,
-    wishTick: Int,
-    onWish: () -> Unit,
+    cart: CartStore,
+    downloads: DownloadCenter,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -629,21 +751,13 @@ private fun DetailScreen(
     var status by remember { mutableStateOf<String?>(null) }
     var progress by remember { mutableFloatStateOf(0f) }
     var remote by remember { mutableStateOf<RemoteRelease?>(null) }
-    var checking by remember { mutableStateOf(true) }
     val installed = remember { ApkDownloader.isInstalled(context, app.packageName) }
-    @Suppress("UNUSED_VARIABLE")
-    val tick = wishTick
+    val wishVer = wishlist.version
     val wished = wishlist.isWished(app.id)
-    val wDisc = wishlist.wishlistDiscountPercent(app.id)
-    val best = PromoCalendar.bestDiscount(wDisc)
-
-    val avg = reviewStore.averageRating(app.id)
-    val cnt = reviewList.size
+    val best = PromoCalendar.bestDiscount(wishlist.wishlistDiscountPercent(app.id))
 
     LaunchedEffect(app.id) {
-        checking = true
         remote = withContext(Dispatchers.IO) { ReleaseChecker.fetchLatest(app) }
-        checking = false
     }
 
     fun startDownload() {
@@ -651,31 +765,27 @@ private fun DetailScreen(
             InstallSource.PLAY -> {
                 val pkg = app.playPackage ?: app.packageName
                 try {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
-                    )
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")))
                 } catch (_: Exception) {
                     context.startActivity(
-                        Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse("https://play.google.com/store/apps/details?id=$pkg")
-                        )
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))
                     )
                 }
                 status = "Открыт Google Play"
                 return
             }
             InstallSource.OFFICIAL_SITE -> {
-                val url = app.officialDownloadUrl ?: app.repoUrl
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                status = "Открыт официальный сайт"
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(app.officialDownloadUrl ?: app.repoUrl))
+                )
+                status = "Открыт сайт разработчика"
                 return
             }
             else -> {}
         }
         if (app.apkAssetName.isBlank() && remote?.downloadUrl.isNullOrBlank()) {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(app.repoUrl + "/releases/latest")))
-            status = "Открыты Releases на GitHub"
+            status = "Открыты Releases"
             return
         }
         if (!ApkDownloader.canInstall(context)) {
@@ -686,14 +796,35 @@ private fun DetailScreen(
         val url = remote?.downloadUrl ?: app.downloadUrlFallback
         downloading = true
         status = "Скачивание..."
+        downloads.upsert(
+            DownloadItem(app.id, app.name, url, context.cacheDir.absolutePath, 0f, "Скачивание")
+        )
         scope.launch {
-            val result = ApkDownloader.download(context, url, "${app.id}.apk") { progress = it }
+            val result = ApkDownloader.download(context, url, "${app.id}.apk") {
+                progress = it
+                downloads.upsert(
+                    DownloadItem(app.id, app.name, url, context.cacheDir.absolutePath + "/${app.id}.apk", it, "Скачивание")
+                )
+            }
             withContext(Dispatchers.Main) {
                 downloading = false
-                status = if (result.success) {
+                if (result.success) {
+                    downloads.upsert(
+                        DownloadItem(
+                            app.id, app.name, url,
+                            result.file?.absolutePath ?: "",
+                            1f, "Готово — установка"
+                        )
+                    )
                     result.file?.let { ApkDownloader.install(context, it) }
-                    "Установка..."
-                } else result.error ?: "Ошибка"
+                    status = "Установка..."
+                    cart.remove(app.id)
+                } else {
+                    status = result.error ?: "Ошибка"
+                    downloads.upsert(
+                        DownloadItem(app.id, app.name, url, "", progress, status ?: "Ошибка")
+                    )
+                }
             }
         }
     }
@@ -701,125 +832,94 @@ private fun DetailScreen(
     Column(
         Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp)
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("← Назад", color = accent, fontSize = 14.sp, modifier = Modifier.clickable(onClick = onBack))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("← Назад", color = accent, modifier = Modifier.clickable(onClick = onBack))
             Text(
                 if (wished) "★ В желаемом" else "☆ В желаемое",
                 color = if (wished) Color(0xFFFFC857) else textDim,
-                fontSize = 13.sp,
-                modifier = Modifier.clickable {
-                    wishlist.toggle(app.id)
-                    onWish()
-                }
+                modifier = Modifier.clickable { wishlist.toggle(app.id) }
             )
         }
         Spacer(Modifier.height(12.dp))
         Text(app.name, color = text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text(app.tagline, color = textDim, fontSize = 14.sp)
         Spacer(Modifier.height(8.dp))
-        StarRow(avg, cnt, star = Color(0xFFFFC857), mute = textDim)
+        StarRow(reviewStore.averageRating(app.id), reviewList.size, false, Color(0xFFFFC857), textDim)
         if (app.price > 0) {
-            Spacer(Modifier.height(6.dp))
-            if (best.first > 0) {
-                val fp = app.price * (100 - best.first) / 100
-                Text("Цена: $fp (−${best.first}% ${best.second})", color = accent, fontSize = 14.sp)
-            } else {
-                Text("Цена: ${app.price} валюты Wallet", color = textDim, fontSize = 14.sp)
-            }
+            val fp = if (best.first > 0) app.price * (100 - best.first) / 100 else app.price
+            Text(
+                if (best.first > 0) "Цена: $fp (−${best.first}% ${best.second})" else "Цена: $fp валюты",
+                color = accent, fontSize = 14.sp
+            )
         }
         Spacer(Modifier.height(12.dp))
         Text(app.description, color = textDim, fontSize = 14.sp, lineHeight = 20.sp)
         if (!app.isOfficial) {
             Spacer(Modifier.height(8.dp))
-            Text("Права / автор: ${app.author}", color = accent, fontSize = 13.sp)
-            Text(
-                when (app.installSource) {
-                    InstallSource.PLAY -> "Источник: Google Play"
-                    InstallSource.OFFICIAL_SITE -> "Источник: официальный сайт"
-                    else -> app.repoUrl
-                },
-                color = textDim, fontSize = 11.sp
-            )
+            Text("Права: ${app.author}", color = accent, fontSize = 13.sp)
         }
-        Spacer(Modifier.height(20.dp))
-        val btnLabel = when {
+        Spacer(Modifier.height(16.dp))
+        PrimaryButton("В корзину", glass) { cart.add(app.id); status = "Добавлено в корзину" }
+        Spacer(Modifier.height(8.dp))
+        val btn = when {
             downloading -> "Загрузка ${(progress * 100).toInt()}%"
             app.installSource == InstallSource.PLAY -> "Открыть в Play"
-            app.installSource == InstallSource.OFFICIAL_SITE -> "Сайт разработчика"
             !installed -> "Скачать и установить"
             else -> "Обновить / переустановить"
         }
-        PrimaryButton(btnLabel, accent) { if (!downloading) startDownload() }
-        if (installed && app.installSource != InstallSource.PLAY) {
+        PrimaryButton(btn, accent) { if (!downloading) startDownload() }
+        if (installed) {
             Spacer(Modifier.height(8.dp))
-            PrimaryButton("Открыть", accent) {
-                context.packageManager.getLaunchIntentForPackage(app.packageName)?.let {
-                    context.startActivity(it)
-                }
-            }
+            PrimaryButton("Открыть", accent) { ApkDownloader.openApp(context, app.packageName) }
         }
         status?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = textDim, fontSize = 12.sp)
         }
-        if (checking) {
-            Spacer(Modifier.height(6.dp))
-            Text("Проверка релизов...", color = textDim, fontSize = 12.sp)
-        }
 
-        Spacer(Modifier.height(28.dp))
-        Text("Оставить оценку", color = text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
-        StarPicker(rating, { rating = it }, Color(0xFFFFC857), textDim)
+        Spacer(Modifier.height(24.dp))
+        Text("Оценка", color = text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (1..5).forEach { i ->
+                Text(
+                    if (i <= rating) "★" else "☆",
+                    color = if (i <= rating) Color(0xFFFFC857) else textDim,
+                    fontSize = 28.sp,
+                    modifier = Modifier.clickable { rating = i }
+                )
+            }
+        }
         Spacer(Modifier.height(10.dp))
         Field("Комментарий", reviewText, text, glass, border, accent) { reviewText = it }
         Spacer(Modifier.height(10.dp))
-        PrimaryButton("Отправить оценку", accent) {
-            reviewStore.addReview(
-                Review(app.id, accountName, rating, reviewText.ifBlank { "Без комментария" })
-            )
+        PrimaryButton("Отправить", accent) {
+            reviewStore.addReview(Review(app.id, accountName, rating, reviewText.ifBlank { "Без комментария" }))
             reviewList = reviewStore.getReviews(app.id)
             reviewText = ""
-            status = "Оценка сохранена: $rating★"
+            status = "Оценка сохранена"
         }
-        Spacer(Modifier.height(24.dp))
-        Text("Отзывы (${reviewList.size})", color = text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(8.dp))
-        if (reviewList.isEmpty()) {
-            Text("Пока нет отзывов", color = textDim, fontSize = 13.sp)
-        } else {
-            reviewList.forEach { r ->
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(glass).padding(12.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(r.author, color = text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.width(8.dp))
-                        Text(buildString { repeat(r.rating) { append('★') } }, color = Color(0xFFFFC857), fontSize = 12.sp)
-                    }
-                    if (r.text.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(r.text, color = textDim, fontSize = 13.sp)
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(16.dp))
+        reviewList.forEach { r ->
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(glass).padding(12.dp)) {
+                Text("${r.author} ${"★".repeat(r.rating)}", color = text, fontSize = 13.sp)
+                Text(r.text, color = textDim, fontSize = 13.sp)
             }
+            Spacer(Modifier.height(8.dp))
         }
         Spacer(Modifier.height(40.dp))
+        @Suppress("UNUSED_VARIABLE")
+        val _w = wishVer
     }
 }
 
 @Composable
-private fun PrimaryButton(text: String, accent: Color, onClick: () -> Unit) {
+private fun PrimaryButton(label: String, bg: Color, onClick: () -> Unit) {
     Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(accent)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(bg)
             .clickable(onClick = onClick).padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
