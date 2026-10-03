@@ -27,10 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Telegram для заявок на добавление игр в каталог */
 const val COLLAB_TG = "https://t.me/LuntikVisuals"
 
-enum class MainTab { Apps, Profile }
+enum class MainTab { Apps, Library, Settings, Profile }
 
 private object PU {
     val Bg2 = Color(0xFF16161F)
@@ -44,41 +43,43 @@ private object PU {
 }
 
 @Composable
-fun StoreBottomBar(tab: MainTab, onTab: (MainTab) -> Unit) {
+fun StoreBottomBar(tab: MainTab, onTab: (MainTab) -> Unit, accent: Color = PU.Accent) {
     Row(
         Modifier
             .fillMaxWidth()
             .background(PU.Bg2.copy(alpha = 0.95f))
             .border(1.dp, PU.Border)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 4.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        BottomItem("Каталог", tab == MainTab.Apps) { onTab(MainTab.Apps) }
-        BottomItem("Профиль", tab == MainTab.Profile) { onTab(MainTab.Profile) }
+        BottomItem("Каталог", tab == MainTab.Apps, accent) { onTab(MainTab.Apps) }
+        BottomItem("Библиотека", tab == MainTab.Library, accent) { onTab(MainTab.Library) }
+        BottomItem("Настройки", tab == MainTab.Settings, accent) { onTab(MainTab.Settings) }
+        BottomItem("Профиль", tab == MainTab.Profile, accent) { onTab(MainTab.Profile) }
     }
 }
 
 @Composable
-private fun BottomItem(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun BottomItem(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
     Column(
         Modifier
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 28.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             label,
-            color = if (selected) PU.Accent else PU.TextMute,
-            fontSize = 13.sp,
+            color = if (selected) accent else PU.TextMute,
+            fontSize = 11.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
         )
     }
 }
 
 @Composable
-fun ProfileTab(account: Account?, onLogout: () -> Unit) {
+fun ProfileTab(account: Account?, onLogout: () -> Unit, accent: Color = PU.Accent) {
     val context = LocalContext.current
     Column(
         Modifier
@@ -90,7 +91,7 @@ fun ProfileTab(account: Account?, onLogout: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Text(
             account?.displayName?.ifBlank { account.username } ?: "Гость",
-            color = PU.Accent,
+            color = accent,
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold
         )
@@ -108,7 +109,7 @@ fun ProfileTab(account: Account?, onLogout: () -> Unit) {
             Text("Сотрудничество", color = PU.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Хочешь добавить свою игру или FOSS-проект в LuntikStore? Пришли ссылку на GitHub (репозиторий и Releases с APK) в Telegram — рассмотрим и добавим в каталог.",
+                "Хочешь добавить свою игру или FOSS в каталог? Пришли ссылку на GitHub в Telegram.",
                 color = PU.TextDim,
                 fontSize = 13.sp
             )
@@ -117,7 +118,7 @@ fun ProfileTab(account: Account?, onLogout: () -> Unit) {
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(PU.Accent)
+                    .background(accent)
                     .clickable {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(COLLAB_TG)))
                     }
@@ -126,8 +127,6 @@ fun ProfileTab(account: Account?, onLogout: () -> Unit) {
             ) {
                 Text("Заявка в Telegram", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(8.dp))
-            Text("t.me/LuntikVisuals", color = PU.TextMute, fontSize = 11.sp)
         }
 
         Spacer(Modifier.height(16.dp))
@@ -142,7 +141,7 @@ fun ProfileTab(account: Account?, onLogout: () -> Unit) {
             Text("О магазине", color = PU.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Text(
-                "Официальные приложения Luntik и открытые игры с GitHub. У сторонних проектов указан автор.",
+                "LuntikStore 0.6.0 · официальные приложения, FOSS и внешние источники с указанием прав.",
                 color = PU.TextDim,
                 fontSize = 13.sp
             )
