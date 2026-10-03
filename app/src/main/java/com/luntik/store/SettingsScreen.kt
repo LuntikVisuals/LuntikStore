@@ -47,7 +47,7 @@ fun SettingsScreen(
             context.contentResolver.openInputStream(uri)?.use { input ->
                 val out = File(context.filesDir, "store_wallpaper.jpg")
                 out.outputStream().use { input.copyTo(it) }
-                settings.setWallpaper(out.absolutePath)
+                settings.updateWallpaper(out.absolutePath)
                 status = "Фон обновлён"
             }
         } catch (_: Exception) {
@@ -106,7 +106,7 @@ fun SettingsScreen(
                         "Привязка аккаунтов к играм",
                         color = Color.White,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -130,7 +130,7 @@ private fun SectionItem(title: String, selected: Boolean, accent: Color, onClick
         title,
         color = if (selected) accent else Color.White.copy(alpha = 0.45f),
         fontSize = 12.sp,
-        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
@@ -181,7 +181,7 @@ private fun PrivacyPanel(
     Spacer(Modifier.height(20.dp))
     Row(
         Modifier.fillMaxWidth().clickable {
-            settings.setCloudPasswordEnabled(!settings.cloudPasswordEnabled)
+            settings.updateCloudPasswordEnabled(!settings.cloudPasswordEnabled)
         },
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -229,7 +229,7 @@ private fun PersonalPanel(
                 Modifier
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (sel) accent else Color.White.copy(alpha = 0.1f))
-                    .clickable { settings.setTheme(m) }
+                    .clickable { settings.updateTheme(m) }
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text(m.title, color = if (sel) Color.Black else Color.White, fontSize = 13.sp)
@@ -257,7 +257,7 @@ private fun PersonalPanel(
                         CircleShape
                     )
                     .clickable {
-                        settings.setAccent(c)
+                        settings.updateAccent(c)
                         onStatus("Акцент обновлён")
                     }
             )
@@ -274,7 +274,7 @@ private fun PersonalPanel(
                 Modifier
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (sel) accent else Color.White.copy(alpha = 0.1f))
-                    .clickable { settings.setGrid(g) }
+                    .clickable { settings.updateGrid(g) }
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
                 Text(g.title, color = if (sel) Color.Black else Color.White, fontSize = 12.sp)
@@ -302,14 +302,14 @@ private fun PersonalPanel(
     SettingsBtn("Выбрать фото", accent, onClick = onPickWall)
     Spacer(Modifier.height(6.dp))
     SettingsBtn("Сбросить фон", Color.White.copy(alpha = 0.3f)) {
-        settings.setWallpaper(null)
+        settings.updateWallpaper(null)
         File(filesDir, "store_wallpaper.jpg").delete()
         onStatus("Фон сброшен")
     }
 
     Spacer(Modifier.height(16.dp))
     Row(
-        Modifier.fillMaxWidth().clickable { settings.setHideAds(!settings.hideAds) },
+        Modifier.fillMaxWidth().clickable { settings.updateHideAds(!settings.hideAds) },
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(if (settings.hideAds) "☑" else "☐", color = accent, fontSize = 18.sp)
