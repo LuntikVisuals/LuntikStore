@@ -53,20 +53,26 @@ data class DownloadItem(
     val readyToInstall: Boolean = false
 )
 
-/**
- * Центр загрузок: состояние в SharedPreferences + APK в filesDir/apks.
- * Можно уйти с экрана — файл и статус сохраняются, установка доступна позже.
- */
-class DownloadCenter(context: Context) {
-    private val appContext = context.applicationContext
-    private val prefs = context.getSharedPreferences("luntik_downloads", Context.MODE_PRIVATE)
+/** Центр загрузок. Вызови init(context) один раз из StoreRoot. */
+class DownloadCenter {
+    private var appContext: Context? = null
+    private val prefs get() = appContext!!.getSharedPreferences("luntik_downloads", Context.MODE_PRIVATE)
     val items = mutableStateListOf<DownloadItem>()
+    private var loaded = false
 
-    init {
-        load()
+    fun init(context: Context) {
+        if (appContext != null) return
+        appContext = context.applicationContext
+        if (!loaded) {
+            load()
+            loaded = true
+        }
     }
 
-    fun apkDir(): File = File(appContext.filesDir, "apks").also { it.mkdirs() }
+    fun apkDir(): File {
+        val ctx = appContext ?: return File("/tmp")
+        return File(ctx.filesDir, "apks").also { it.mkdirs() }
+    }
 
     fun apkFile(appId: String): File = File(apkDir(), "$appId.apk")
 
@@ -85,6 +91,7 @@ class DownloadCenter(context: Context) {
     fun get(appId: String): DownloadItem? = items.find { it.appId == appId }
 
     private fun persist() {
+        if (appContext == null) return
         val arr = JSONArray()
         items.forEach { d ->
             arr.put(
@@ -102,6 +109,7 @@ class DownloadCenter(context: Context) {
     }
 
     private fun load() {
+        if (appContext == null) return
         val raw = prefs.getString("items", "[]") ?: "[]"
         try {
             val arr = JSONArray(raw)
