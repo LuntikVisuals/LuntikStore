@@ -31,24 +31,14 @@ const val COLLAB_TG = "https://t.me/LuntikVisuals"
 
 enum class MainTab { Apps, Library, Settings, Profile }
 
-private object PU {
-    val Bg2 = Color(0xFF16161F)
-    val Glass = Color.White.copy(alpha = 0.11f)
-    val Border = Color.White.copy(alpha = 0.13f)
-    val Text = Color(0xFFF2F2F7)
-    val TextDim = Color.White.copy(alpha = 0.55f)
-    val TextMute = Color.White.copy(alpha = 0.32f)
-    val Accent = Color(0xFF8B9CFF)
-    val Error = Color(0xFFFF6B7A)
-}
-
 @Composable
-fun StoreBottomBar(tab: MainTab, onTab: (MainTab) -> Unit, accent: Color = PU.Accent) {
+fun StoreBottomBar(tab: MainTab, onTab: (MainTab) -> Unit, accent: Color = Color(0xFF8B9CFF)) {
+    val barBg = Color(0xFF16161F).copy(alpha = 0.95f)
     Row(
         Modifier
             .fillMaxWidth()
-            .background(PU.Bg2.copy(alpha = 0.95f))
-            .border(1.dp, PU.Border)
+            .background(barBg)
+            .border(1.dp, Color.White.copy(alpha = 0.13f))
             .padding(horizontal = 4.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
@@ -71,46 +61,52 @@ private fun BottomItem(label: String, selected: Boolean, accent: Color, onClick:
     ) {
         Text(
             label,
-            color = if (selected) accent else PU.TextMute,
+            color = if (selected) accent else Color.White.copy(alpha = 0.4f),
             fontSize = 11.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
         )
     }
 }
 
 @Composable
-fun ProfileTab(account: Account?, onLogout: () -> Unit, accent: Color = PU.Accent) {
+fun ProfileTab(account: Account?, onLogout: () -> Unit, accent: Color = Color(0xFF8B9CFF)) {
     val context = LocalContext.current
+    // Always readable on gradient / wallpaper: light cards on dark-ish overlay from parent
+    val text = Color(0xFFF2F2F7)
+    val textDim = Color.White.copy(alpha = 0.55f)
+    val glass = Color.White.copy(alpha = 0.11f)
+    val border = Color.White.copy(alpha = 0.13f)
+
     Column(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .padding(20.dp)
     ) {
-        Text("Профиль", color = PU.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text("Профиль", color = text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
             account?.displayName?.ifBlank { account.username } ?: "Гость",
             color = accent,
             fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Bold
         )
-        Text("@${account?.username ?: "—"}", color = PU.TextDim, fontSize = 13.sp)
+        Text("@${account?.username ?: "—"}", color = textDim, fontSize = 13.sp)
         Spacer(Modifier.height(24.dp))
 
         Column(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(PU.Glass)
-                .border(1.dp, PU.Border, RoundedCornerShape(16.dp))
+                .background(glass)
+                .border(1.dp, border, RoundedCornerShape(16.dp))
                 .padding(16.dp)
         ) {
-            Text("Сотрудничество", color = PU.Text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("Сотрудничество", color = text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Хочешь добавить свою игру или FOSS в каталог? Пришли ссылку на GitHub в Telegram.",
-                color = PU.TextDim,
+                "Хочешь добавить игру в каталог? Пришли GitHub в Telegram.",
+                color = textDim,
                 fontSize = 13.sp
             )
             Spacer(Modifier.height(14.dp))
@@ -134,15 +130,15 @@ fun ProfileTab(account: Account?, onLogout: () -> Unit, accent: Color = PU.Accen
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(PU.Glass)
-                .border(1.dp, PU.Border, RoundedCornerShape(16.dp))
+                .background(glass)
+                .border(1.dp, border, RoundedCornerShape(16.dp))
                 .padding(16.dp)
         ) {
-            Text("О магазине", color = PU.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("О магазине", color = text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Text(
-                "LuntikStore 0.6.0 · официальные приложения, FOSS и внешние источники с указанием прав.",
-                color = PU.TextDim,
+                "LuntikStore 0.7.0 · каталог, библиотека, корзина, желаемое, папки профиля.",
+                color = textDim,
                 fontSize = 13.sp
             )
         }
@@ -152,12 +148,12 @@ fun ProfileTab(account: Account?, onLogout: () -> Unit, accent: Color = PU.Accen
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, PU.Border, RoundedCornerShape(12.dp))
+                .border(1.dp, border, RoundedCornerShape(12.dp))
                 .clickable(onClick = onLogout)
                 .padding(vertical = 14.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("Выйти", color = PU.Error, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text("Выйти", color = Color(0xFFFF6B7A), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
