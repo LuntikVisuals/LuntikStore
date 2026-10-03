@@ -10,7 +10,7 @@ data class Account(
     val displayName: String
 )
 
-/** Локальная регистрация. Пароль хранится только как SHA-256, без отправки на сервер. */
+/** Локальная регистрация. Пароль хранится только как SHA-256. */
 class AccountStore(context: Context) {
 
     private val prefs = context.getSharedPreferences("luntik_account", Context.MODE_PRIVATE)
@@ -28,9 +28,6 @@ class AccountStore(context: Context) {
         val u = username.trim()
         if (u.length < 3) return "Имя пользователя минимум 3 символа"
         if (password.length < 4) return "Пароль минимум 4 символа"
-        if (prefs.getString("username", null) != null && prefs.getString("user_id", null) != null) {
-            // already registered on this device — allow re-login with password
-        }
         val id = UUID.randomUUID().toString()
         prefs.edit()
             .putString("user_id", id)
@@ -50,9 +47,23 @@ class AccountStore(context: Context) {
         return null
     }
 
+    fun updateDisplayName(name: String): String? {
+        val n = name.trim()
+        if (n.length < 2) return "Ник минимум 2 символа"
+        if (prefs.getString("user_id", null) == null) return "Нет аккаунта"
+        prefs.edit().putString("display_name", n).apply()
+        return null
+    }
+
+    fun changePassword(oldPassword: String, newPassword: String): String? {
+        val hash = prefs.getString("password_hash", null) ?: return "Нет аккаунта"
+        if (hash != sha256(oldPassword)) return "Неверный текущий пароль"
+        if (newPassword.length < 4) return "Новый пароль минимум 4 символа"
+        prefs.edit().putString("password_hash", sha256(newPassword)).apply()
+        return null
+    }
+
     fun logout() {
-        // keep credentials for re-login, only clear session flag if we add one
-        // For local-only: logout clears session display
         prefs.edit().putBoolean("session", false).apply()
     }
 
