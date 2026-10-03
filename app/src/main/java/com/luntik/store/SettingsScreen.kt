@@ -1,6 +1,5 @@
 package com.luntik.store
 
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -51,7 +50,7 @@ fun SettingsScreen(
                 settings.setWallpaper(out.absolutePath)
                 status = "Фон обновлён"
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             status = "Не удалось сохранить фон"
         }
     }
@@ -61,7 +60,6 @@ fun SettingsScreen(
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        // Left sections
         Column(
             Modifier
                 .width(120.dp)
@@ -69,8 +67,13 @@ fun SettingsScreen(
                 .background(Color.Black.copy(alpha = 0.25f))
                 .padding(8.dp)
         ) {
-            Text("Настройки", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(8.dp))
+            Text(
+                "Настройки",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(8.dp)
+            )
             SectionItem("Конфиденц.", section == SettingsSection.Privacy, accent) {
                 section = SettingsSection.Privacy
             }
@@ -92,12 +95,19 @@ fun SettingsScreen(
             when (section) {
                 SettingsSection.Privacy -> PrivacyPanel(accountStore, settings, accent) { status = it }
                 SettingsSection.Personal -> PersonalPanel(
-                    settings, accent,
+                    settings = settings,
+                    accent = accent,
+                    filesDir = context.filesDir,
                     onPickWall = { pickWall.launch(arrayOf("image/*")) },
                     onStatus = { status = it }
                 )
                 SettingsSection.Integrations -> {
-                    Text("Привязка аккаунтов к играм", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Привязка аккаунтов к играм",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Скоро: привязка профиля Luntik к твоим играм. Пока раздел в разработке.",
@@ -162,7 +172,10 @@ private fun PrivacyPanel(
     SettingsBtn("Сменить пароль", accent) {
         val err = accountStore.changePassword(oldPw, newPw)
         onStatus(err ?: "Пароль изменён")
-        if (err == null) { oldPw = ""; newPw = "" }
+        if (err == null) {
+            oldPw = ""
+            newPw = ""
+        }
     }
 
     Spacer(Modifier.height(20.dp))
@@ -180,7 +193,11 @@ private fun PrivacyPanel(
         Spacer(Modifier.width(8.dp))
         Column {
             Text("Облачный пароль при входе", color = Color.White, fontSize = 14.sp)
-            Text("Запрашивать пароль при открытии Store", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+            Text(
+                "Запрашивать пароль при открытии Store",
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 11.sp
+            )
         }
     }
 
@@ -196,6 +213,7 @@ private fun PrivacyPanel(
 private fun PersonalPanel(
     settings: SettingsStore,
     accent: Color,
+    filesDir: File,
     onPickWall: () -> Unit,
     onStatus: (String) -> Unit
 ) {
@@ -238,7 +256,10 @@ private fun PersonalPanel(
                         if (settings.accentColor() == c) Color.White else Color.Transparent,
                         CircleShape
                     )
-                    .clickable { settings.setAccent(c); onStatus("Акцент обновлён") }
+                    .clickable {
+                        settings.setAccent(c)
+                        onStatus("Акцент обновлён")
+                    }
             )
         }
     }
@@ -261,7 +282,6 @@ private fun PersonalPanel(
         }
     }
     Spacer(Modifier.height(8.dp))
-    // preview
     Text("Превью:", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
     Spacer(Modifier.height(6.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -283,7 +303,7 @@ private fun PersonalPanel(
     Spacer(Modifier.height(6.dp))
     SettingsBtn("Сбросить фон", Color.White.copy(alpha = 0.3f)) {
         settings.setWallpaper(null)
-        File(LocalContext.current.filesDir, "store_wallpaper.jpg").delete()
+        File(filesDir, "store_wallpaper.jpg").delete()
         onStatus("Фон сброшен")
     }
 
@@ -296,7 +316,11 @@ private fun PersonalPanel(
         Spacer(Modifier.width(8.dp))
         Column {
             Text("Скрыть рекламу приложений", color = Color.White, fontSize = 14.sp)
-            Text("Премиум-настройка (локально)", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+            Text(
+                "Премиум-настройка (локально)",
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 11.sp
+            )
         }
     }
 }
@@ -338,7 +362,11 @@ private fun SettingsBtn(text: String, bg: Color, onClick: () -> Unit) {
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (bg == Color.White.copy(alpha = 0.3f)) Color.White else Color.Black,
-            fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text,
+            color = if (bg == Color.White.copy(alpha = 0.3f)) Color.White else Color.Black,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
