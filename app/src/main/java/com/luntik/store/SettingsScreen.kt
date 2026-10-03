@@ -5,6 +5,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,7 +16,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -35,12 +35,18 @@ fun SettingsScreen(
     text: Color,
     textDim: Color,
     glass: Color,
-    border: Color
+    border: Color,
+    isLight: Boolean
 ) {
     val context = LocalContext.current
     var section by remember { mutableStateOf(SettingsSection.Personal) }
     var status by remember { mutableStateOf<String?>(null) }
     val friends = remember { LocalFolders.listFriends(context) }
+    val folderPath = remember { LocalFolders.rootPath(context) }
+
+    // Боковая панель: явный цвет под тему (не «перевёрнутый» glass)
+    val sideBg = if (isLight) Color(0xFFE6E8F0) else Color(0xFF12121A)
+    val sideBorder = if (isLight) Color.Black.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.08f)
 
     val pickWall = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -83,11 +89,8 @@ fun SettingsScreen(
             Modifier
                 .width(118.dp)
                 .fillMaxHeight()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(glass.copy(alpha = 0.9f), glass.copy(alpha = 0.4f))
-                    )
-                )
+                .background(sideBg)
+                .border(width = 1.dp, color = sideBorder)
                 .padding(vertical = 12.dp, horizontal = 6.dp)
         ) {
             Text(
@@ -157,6 +160,17 @@ fun SettingsScreen(
                         color = textDim, fontSize = 12.sp
                     )
                     Spacer(Modifier.height(10.dp))
+                    Text("Папка данных:", color = textDim, fontSize = 11.sp)
+                    Text(folderPath, color = accent, fontSize = 11.sp)
+                    Spacer(Modifier.height(10.dp))
+                    SettingsBtn("Создать / обновить папки", accent) {
+                        LocalFolders.ensureStructure(context)
+                        accountStore.current()?.let { a ->
+                            LocalFolders.writeProfile(context, a.username, a.displayName)
+                        }
+                        status = "Папки готовы:\n$folderPath"
+                    }
+                    Spacer(Modifier.height(8.dp))
                     SettingsBtn("Импорт профиля друга", accent) {
                         importFriend.launch(arrayOf("application/json", "*/*"))
                     }
@@ -178,11 +192,6 @@ fun SettingsScreen(
                             Spacer(Modifier.height(8.dp))
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Привязка аккаунтов к играм — следующий апдейт.",
-                        color = textDim, fontSize = 12.sp
-                    )
                 }
             }
             status?.let {
@@ -310,14 +319,19 @@ private fun PersonalPanel(
             Color(0xFF8B9CFF), Color(0xFF5CFFB0), Color(0xFFFF6B7A),
             Color(0xFFFFC857), Color(0xFF4FC3F7), Color(0xFFFFB8E0)
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // горизонтальный скролл — розовый не обрезается
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             presets.forEach { c ->
                 Box(
-                    Modifier.size(30.dp).clip(CircleShape).background(c)
+                    Modifier.size(32.dp).clip(CircleShape).background(c)
                         .border(2.dp, if (settings.accentColor() == c) text else Color.Transparent, CircleShape)
                         .clickable { settings.updateAccent(c); onStatus("Акцент обновлён") }
                 )
             }
+            Spacer(Modifier.width(4.dp))
         }
     }
     Spacer(Modifier.height(12.dp))
