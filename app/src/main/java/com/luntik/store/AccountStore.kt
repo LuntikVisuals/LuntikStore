@@ -10,9 +10,9 @@ data class Account(
     val displayName: String
 )
 
-/** Локальная регистрация. Пароль хранится только как SHA-256. */
 class AccountStore(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("luntik_account", Context.MODE_PRIVATE)
 
     fun isLoggedIn(): Boolean = prefs.getString("user_id", null) != null
@@ -24,17 +24,28 @@ class AccountStore(context: Context) {
         return Account(id, username, display)
     }
 
+    fun hasAcceptedTerms(): Boolean = prefs.getBoolean("terms_ok", false)
+
+    fun acceptTerms() {
+        prefs.edit().putBoolean("terms_ok", true).apply()
+    }
+
     fun register(username: String, password: String, displayName: String): String? {
         val u = username.trim()
         if (u.length < 3) return "Имя пользователя минимум 3 символа"
         if (password.length < 4) return "Пароль минимум 4 символа"
+        if (!hasAcceptedTerms()) return "Нужно принять пользовательское соглашение"
         val id = UUID.randomUUID().toString()
+        val hash = sha256(password)
         prefs.edit()
             .putString("user_id", id)
             .putString("username", u)
             .putString("display_name", displayName.ifBlank { u })
-            .putString("password_hash", sha256(password))
+            .putString("password_hash", hash)
             .apply()
+        LocalFolders.ensureStructure(appContext)
+        LocalFolders.writeAccountMeta(appContext, u, hash)
+        LocalFolders.writeProfile(appContext, u, displayName.ifBlank { u })
         return null
     }
 
@@ -44,7 +55,16 @@ class AccountStore(context: Context) {
         if (saved == null || hash == null) return "Сначала зарегистрируйтесь"
         if (saved != username.trim()) return "Неверный логин"
         if (hash != sha256(password)) return "Неверный пароль"
+        LocalFolders.ensureStructure(appContext)
+        val display = prefs.getString("display_name", saved) ?: saved
+        LocalFolders.writeProfile(appContext, saved, display)
         return null
+    }
+
+    /** Проверка пароля для облачного замка (без смены сессии). */
+    fun verifyPassword(password: String): Boolean {
+        val hash = prefs.getString("password_hash", null) ?: return false
+        return hash == sha256(password)
     }
 
     fun updateDisplayName(name: String): String? {
@@ -52,6 +72,8 @@ class AccountStore(context: Context) {
         if (n.length < 2) return "Ник минимум 2 символа"
         if (prefs.getString("user_id", null) == null) return "Нет аккаунта"
         prefs.edit().putString("display_name", n).apply()
+        val u = prefs.getString("username", n) ?: n
+        LocalFolders.writeProfile(appContext, u, n)
         return null
     }
 
@@ -59,7 +81,10 @@ class AccountStore(context: Context) {
         val hash = prefs.getString("password_hash", null) ?: return "Нет аккаунта"
         if (hash != sha256(oldPassword)) return "Неверный текущий пароль"
         if (newPassword.length < 4) return "Новый пароль минимум 4 символа"
-        prefs.edit().putString("password_hash", sha256(newPassword)).apply()
+        val newHash = sha256(newPassword)
+        prefs.edit().putString("password_hash", newHash).apply()
+        val u = prefs.getString("username", "") ?: ""
+        LocalFolders.writeAccountMeta(appContext, u, newHash)
         return null
     }
 
