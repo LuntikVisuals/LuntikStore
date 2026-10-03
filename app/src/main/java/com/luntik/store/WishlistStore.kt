@@ -1,16 +1,23 @@
 package com.luntik.store
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Желаемое: appId -> timestamp добавления (ms).
- * Скидка: 2д=10%, 10д=15%, 30д=25%.
+ * Желаемое: appId -> timestamp.
+ * version++ на каждое изменение — UI сразу перерисовывается.
  */
 class WishlistStore(context: Context) {
     private val prefs = context.getSharedPreferences("luntik_wishlist", Context.MODE_PRIVATE)
     private val key = "map"
+
+    /** Меняется при toggle — читайте в @Composable для рекомпозиции */
+    var version by mutableIntStateOf(0)
+        private set
 
     private fun load(): MutableMap<String, Long> {
         val raw = prefs.getString(key, "{}") ?: "{}"
@@ -24,6 +31,7 @@ class WishlistStore(context: Context) {
         val json = JSONObject()
         map.forEach { (k, v) -> json.put(k, v) }
         prefs.edit().putString(key, json.toString()).apply()
+        version++
     }
 
     fun isWished(appId: String): Boolean = load().containsKey(appId)
@@ -49,7 +57,6 @@ class WishlistStore(context: Context) {
         return TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis() - t)
     }
 
-    /** 0 if none */
     fun wishlistDiscountPercent(appId: String): Int {
         val d = daysInWishlist(appId)
         return when {
@@ -62,20 +69,17 @@ class WishlistStore(context: Context) {
 }
 
 object PromoCalendar {
-    /** Сезон 10% в первые 14 дней сезона; праздники отдельно. */
     fun activePromoPercent(now: Long = System.currentTimeMillis()): Pair<Int, String>? {
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = now }
-        val month = cal.get(java.util.Calendar.MONTH) // 0-based
+        val month = cal.get(java.util.Calendar.MONTH)
         val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
 
-        // Хэллоуин 25.10–01.11 — 40%
         if ((month == java.util.Calendar.OCTOBER && day >= 25) ||
             (month == java.util.Calendar.NOVEMBER && day == 1)
         ) {
             return 40 to "Хэллоуин"
         }
 
-        // Начало сезонов: первые 10 дней
         val seasonStart = when (month) {
             java.util.Calendar.MARCH -> "Весенние скидки" to (day <= 10)
             java.util.Calendar.JUNE -> "Летние скидки" to (day <= 10)
@@ -87,7 +91,6 @@ object PromoCalendar {
             return 10 to seasonStart.first
         }
 
-        // Прочие праздники 20%: 1 янв, 23 фев, 8 мар, 1 мая, 9 мая, 12 июн, 4 ноя, 31 дек
         val holidays = listOf(
             java.util.Calendar.JANUARY to 1,
             java.util.Calendar.FEBRUARY to 23,
@@ -104,7 +107,6 @@ object PromoCalendar {
         return null
     }
 
-    /** Макс. из желаемого и промо */
     fun bestDiscount(wishlistPct: Int, now: Long = System.currentTimeMillis()): Pair<Int, String> {
         val promo = activePromoPercent(now)
         val p = promo?.first ?: 0
