@@ -17,10 +17,6 @@ data class RemoteRelease(
     val error: String? = null
 )
 
-/**
- * Тянет /releases/latest с GitHub и отдаёт реальный URL APK.
- * Сравнение «есть ли обновление» — по published_at vs то, что сохранили после установки.
- */
 object ReleaseChecker {
 
     private val client = OkHttpClient.Builder()
@@ -31,12 +27,25 @@ object ReleaseChecker {
     private const val PREFS = "luntik_release_meta"
 
     suspend fun fetchLatest(app: CatalogApp): RemoteRelease = withContext(Dispatchers.IO) {
+        if (app.githubRepo.isBlank() ||
+            app.installSource == InstallSource.PLAY ||
+            app.installSource == InstallSource.OFFICIAL_SITE
+        ) {
+            return@withContext RemoteRelease(
+                available = false,
+                downloadUrl = null,
+                publishedAt = null,
+                tagName = null,
+                assetName = null,
+                error = "Внешний источник (не GitHub)"
+            )
+        }
         try {
             val url = "https://api.github.com/repos/${app.githubRepo}/releases/latest"
             val req = Request.Builder()
                 .url(url)
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "LuntikStore/0.4")
+                .header("User-Agent", "LuntikStore/0.6")
                 .build()
 
             client.newCall(req).execute().use { resp ->
@@ -75,7 +84,6 @@ object ReleaseChecker {
                         val a = assets.getJSONObject(i)
                         val name = a.optString("name", "")
                         if (name.endsWith(".apk", ignoreCase = true)) {
-                            // предпочитаем точное имя, иначе первый apk
                             if (name.equals(app.apkAssetName, ignoreCase = true) || apkUrl == null) {
                                 apkUrl = a.optString("browser_download_url", null)
                                 assetName = name
@@ -86,7 +94,6 @@ object ReleaseChecker {
                 }
 
                 if (apkUrl.isNullOrBlank()) {
-                    // fallback на фиксированный URL
                     apkUrl = app.downloadUrlFallback
                     assetName = app.apkAssetName
                 }
@@ -124,10 +131,9 @@ object ReleaseChecker {
             .getString("published_$appId", null)
     }
 
-    /** Есть обновление, если remote published_at новее сохранённого */
     fun hasUpdate(context: Context, appId: String, remotePublishedAt: String?): Boolean {
         if (remotePublishedAt.isNullOrBlank()) return false
-        val local = lastKnownPublished(context, appId) ?: return true // не знаем — предложим
-        return remotePublishedAt > local // ISO-8601 сравнивается лексикографически
+        val local = lastKnownPublished(context, appId) ?: return true
+        return remotePublishedAt > local
     }
 }
