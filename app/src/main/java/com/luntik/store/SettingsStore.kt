@@ -32,7 +32,6 @@ class SettingsStore(context: Context) {
     )
         private set
 
-    /** 0 = default accent, иначе ARGB */
     var accentArgb by mutableIntStateOf(prefs.getInt("accent", 0xFF8B9CFF.toInt()))
         private set
 
@@ -47,17 +46,17 @@ class SettingsStore(context: Context) {
 
     fun accentColor(): Color = Color(accentArgb)
 
-    fun setTheme(m: ThemeMode) {
+    fun updateTheme(m: ThemeMode) {
         theme = m
         prefs.edit().putInt("theme", m.ordinal).apply()
     }
 
-    fun setGrid(m: GridMode) {
+    fun updateGrid(m: GridMode) {
         grid = m
         prefs.edit().putInt("grid", m.ordinal).apply()
     }
 
-    fun setAccent(color: Color) {
+    fun updateAccent(color: Color) {
         val argb = android.graphics.Color.argb(
             (color.alpha * 255).toInt(),
             (color.red * 255).toInt(),
@@ -68,17 +67,17 @@ class SettingsStore(context: Context) {
         prefs.edit().putInt("accent", argb).apply()
     }
 
-    fun setHideAds(v: Boolean) {
+    fun updateHideAds(v: Boolean) {
         hideAds = v
         prefs.edit().putBoolean("hide_ads", v).apply()
     }
 
-    fun setWallpaper(path: String?) {
+    fun updateWallpaper(path: String?) {
         wallpaperPath = path
         prefs.edit().putString("wallpaper", path).apply()
     }
 
-    fun setCloudPasswordEnabled(v: Boolean) {
+    fun updateCloudPasswordEnabled(v: Boolean) {
         cloudPasswordEnabled = v
         prefs.edit().putBoolean("cloud_pw", v).apply()
     }
