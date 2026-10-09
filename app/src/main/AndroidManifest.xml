@@ -8,6 +8,7 @@
 
     <queries>
         <package android:name="com.luntik.terminal" />
+        <package android:name="com.luntik.wallet" />
         <package android:name="com.luntik.ai" />
         <package android:name="com.lumina.widgets" />
         <package android:name="com.luntik.store" />
@@ -25,6 +26,7 @@
         android:label="LuntikStore"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:hardwareAccelerated="true"
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.LuntikStore">
 
@@ -32,10 +34,22 @@
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
+            android:hardwareAccelerated="true"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".WalletBridge"
+            android:exported="true"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="com.luntik.store.CONFIRM_WALLET" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
