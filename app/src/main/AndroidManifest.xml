@@ -43,6 +43,12 @@
         </activity>
 
         <activity
+            android:name=".IntegrationsActivity"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".WalletBridge"
             android:exported="true"
             android:hardwareAccelerated="true"
