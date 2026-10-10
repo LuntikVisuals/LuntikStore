@@ -4,11 +4,8 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,14 +27,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 class IntegrationsActivity : ComponentActivity() {
+    private var onPaid: (() -> Unit)? = null
+    private val payLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) onPaid?.invoke()
+        onPaid = null
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { IntegrationsRoot() }
+        setContent { IntegrationsRoot(::startPay) }
+    }
+    private fun startPay(title: String, amount: Int, order: String, onOk: () -> Unit) {
+        onPaid = onOk
+        payLauncher.launch(Intent("com.luntik.wallet.PAY").setPackage("com.luntik.wallet").putExtra("amount", amount.toDouble()).putExtra("order", order).putExtra("title", title))
     }
 }
 
 @Composable
-private fun IntegrationsRoot() {
+private fun IntegrationsRoot(startPay: (String, Int, String, () -> Unit) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val plans = remember { PlanStore(ctx) }
     val settings = remember { SettingsStore(ctx) }
@@ -45,80 +51,61 @@ private fun IntegrationsRoot() {
     var note by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var remote by remember { mutableStateOf(plans.remoteTag.ifBlank { "проверяю..." }) }
-    val anim = settings.animations
+    var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         val app = Catalog.byId("snake") ?: return@LaunchedEffect
         val rel = ReleaseChecker.fetchLatest(app)
         remote = rel.tagName ?: rel.error ?: "не удалось проверить"
         if (!rel.tagName.isNullOrBlank()) plans.remoteTag = rel.tagName
     }
-    fun pay(title: String, amount: Int, order: String, onOk: () -> Unit) {
-        note = "Открыл кошелёк: $title"
-        ctx.startActivity(Intent("com.luntik.wallet.PAY").setPackage("com.luntik.wallet").putExtra("amount", amount.toDouble()).putExtra("order", order).putExtra("title", title))
-        onOk()
-    }
     Column(Modifier.fillMaxSize().background(Color(0xFF0E0E16)).verticalScroll(rememberScrollState()).padding(16.dp)) {
         Text("Интеграции", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp))
         InfoCard("LuntikWallet", if (plans.installed("com.luntik.wallet")) "установлен" else "не установлен")
         if (!plans.installed("com.luntik.wallet")) PayRow("Скачать LuntikWallet") {
-            val app = Catalog.byId("wallet") ?: return@PayRow
-            DownloadCenter.startGithubDownload(ctx, app, app.downloadUrlFallback)
-            note = "Качаю кошелёк"
+            Catalog.byId("wallet")?.let { DownloadCenter.startGithubDownload(ctx, it, it.downloadUrlFallback); note = "Качаю кошелёк" }
         }
         InfoCard(plans.statusLine(), "тег GitHub: $remote")
-        Text("Привязано", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-        plans.linked().forEach { InfoCard(it, "установлено через Стор") }
+        if (note.isNotBlank()) Text(note, color = Color(0xFF8B9CFF))
+        Text("Привязано", color = Color.White, fontWeight = FontWeight.Bold)
+        plans.linked().forEach { InfoCard(it, "установлено") }
         if (plans.perks().isNotEmpty()) InfoCard("Плюшки", plans.perks().joinToString(" · "))
-        if (note.isNotBlank()) Text(note, color = Color(0xFF8B9CFF), modifier = Modifier.padding(vertical = 6.dp))
-        Text("Тарифы змейки", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+        PayRow(if (plans.pauseUsed) "Пауза уже была" else "Пауза 7 дней") { plans.pause(); note = "пауза"; tick++ }
+        Text("Тарифы змейки", color = Color.White, fontWeight = FontWeight.Bold)
         SnakePlan.entries.forEach { plan ->
-            ExpandCard(plan.title, "${plan.days} д · ${if (plan.battlePass) "батлпасс · " else ""}обновление ${if (plan.updatePrice == 0) "бесплатно" else "${plan.updatePrice} LC"}", open == plan.name, anim) {
-                open = if (open == plan.name) "" else plan.name
-            } {
-                PayRow("${plan.price} LC") { pay(plan.title, plan.price, "snake-${plan.name}-${System.currentTimeMillis() / 86_400_000L}") { plans.buySnake(plan) } }
+            ExpandCard(plan.title, "${plan.days} д", open == plan.name, settings.animations, { open = if (open == plan.name) "" else plan.name }) {
+                PayRow("${plan.price} LC") {
+                    startPay(plan.title, plan.price, "snake-${plan.name}-${System.currentTimeMillis() / 86_400_000L}") { plans.buySnake(plan); note = "Оплачено: ${plan.title}"; tick++ }
+                }
             }
         }
-        Text("Подписка Стора", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp))
-        Text(if (plans.storeActive()) "сейчас ${plans.storePlan}" else "нет подписки", color = Color.White.copy(0.6f))
+        Text("Подписка Стора", color = Color.White, fontWeight = FontWeight.Bold)
         listOf("Oro", "Platino", "Titano", "Argento").forEach { name ->
             val options = StorePlan.entries.filter { it.title == name }
-            ExpandCard(name, "${options.size} срока", open == name, anim) { open = if (open == name) "" else name } {
-                options.forEach { plan -> PayRow("${plan.days} д · ${plan.price} LC") { pay(plan.title, plan.price, "store-${plan.name}-${System.currentTimeMillis() / 86_400_000L}") { plans.buyStore(plan) } } }
+            ExpandCard(name, "${options.size} срока", open == name, settings.animations, { open = if (open == name) "" else name }) {
+                options.forEach { plan ->
+                    PayRow("${plan.days} д · ${plan.price} LC") {
+                        startPay(plan.title, plan.price, "store-${plan.name}-${System.currentTimeMillis() / 86_400_000L}") { plans.buyStore(plan); note = "Оплачено: ${plan.title}"; tick++ }
+                    }
+                }
             }
         }
         if (plans.tier() >= 4) {
-            Text("Бесплатная игра: ${plans.freeGame.ifBlank { "не выбрана" }}", color = Color.White, modifier = Modifier.padding(top = 8.dp))
-            Catalog.apps.filter { it.isOfficial && it.id != "store" }.take(6).forEach { app ->
-                PayRow(app.name) { plans.freeGame = app.id; note = "Бесплатная: ${app.name}" }
-            }
+            Text("Бесплатная игра: ${plans.freeGame.ifBlank { "не выбрана" }}", color = Color.White)
+            Catalog.apps.filter { it.isOfficial && it.id != "store" }.take(6).forEach { app -> PayRow(app.name) { plans.freeGame = app.id; note = "Бесплатная: ${app.name}" } }
             PayRow("Копия профиля") { note = plans.exportBackup() }
-            PayRow("Код переноса") { note = plans.makeTransfer().ifBlank { "нет активной змейки" } }
-            BasicTextField(code, { code = it.take(6) }, textStyle = TextStyle(color = Color.White), cursorBrush = SolidColor(Color.White), modifier = Modifier.padding(top = 8.dp))
-            PayRow("Вставить код") { note = if (plans.takeTransfer(code)) "перенесено" else "код не тот" }
+            PayRow("Семейный код") { note = plans.familyCode().ifBlank { "нет подписки" } }
+            BasicTextField(code, { code = it }, textStyle = TextStyle(color = Color.White), cursorBrush = SolidColor(Color.White))
+            PayRow("Вставить семейный код") { note = if (plans.takeFamily(code)) "подписка на этом устройстве" else "код не тот" }
         }
-        Text("Чеки", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+        Text("Чеки", color = Color.White, fontWeight = FontWeight.Bold)
         plans.receipts().forEach { InfoCard(it, "оплата") }
-        PayRow(if (settings.animations) "Анимации вкл" else "Анимации выкл") { settings.updateAnimations(!settings.animations); note = "анимации: ${settings.animations}" }
     }
 }
-
-@Composable private fun InfoCard(title: String, sub: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(0.08f)).border(1.dp, Color.White.copy(0.14f), RoundedCornerShape(16.dp)).padding(14.dp)) {
-        Text(title, color = Color.White, fontWeight = FontWeight.Bold)
-        Text(sub, color = Color.White.copy(0.6f), fontSize = 12.sp)
-    }
-}
+@Composable private fun InfoCard(title: String, sub: String) { Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(0.08f)).border(1.dp, Color.White.copy(0.14f), RoundedCornerShape(16.dp)).padding(14.dp)) { Text(title, color = Color.White, fontWeight = FontWeight.Bold); Text(sub, color = Color.White.copy(0.6f), fontSize = 12.sp) } }
 @Composable private fun ExpandCard(title: String, sub: String, open: Boolean, anim: Boolean, onHead: () -> Unit, body: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(0.08f)).border(1.dp, Color.White.copy(0.18f), RoundedCornerShape(16.dp)).padding(14.dp)) {
-        Column(Modifier.fillMaxWidth().clickable(onClick = onHead)) {
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text(sub, color = Color.White.copy(0.55f), fontSize = 12.sp)
-        }
-        if (anim) AnimatedVisibility(open, enter = expandVertically(tween(240)) + fadeIn(tween(180)), exit = shrinkVertically(tween(180)) + fadeOut(tween(120))) { Column(Modifier.padding(top = 8.dp)) { body() } }
-        else if (open) Column(Modifier.padding(top = 8.dp)) { body() }
+        Column(Modifier.fillMaxWidth().clickable(onClick = onHead)) { Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp); Text(sub, color = Color.White.copy(0.55f), fontSize = 12.sp) }
+        if (anim) AnimatedVisibility(open, enter = expandVertically(tween(240)) + fadeIn(), exit = shrinkVertically() + fadeOut()) { Column { body() } } else if (open) Column { body() }
     }
 }
-@Composable private fun PayRow(label: String, on: () -> Unit) {
-    Text(label, color = Color.Black, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF8B9CFF)).clickable(onClick = on).padding(12.dp))
-}
+@Composable private fun PayRow(label: String, on: () -> Unit) { Text(label, color = Color.Black, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF8B9CFF)).clickable(onClick = on).padding(12.dp)) }
