@@ -2,19 +2,14 @@ package com.luntik.store
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,70 +23,58 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 const val COLLAB_TG = "https://t.me/LuntikVisuals"
-
 enum class MainTab { Apps, Library, Settings, Profile }
 
 @Composable
 fun StoreBottomBar(tab: MainTab, onTab: (MainTab) -> Unit, accent: Color = Color(0xFF8B9CFF)) {
-    val barBg = Color(0xFF16161F).copy(alpha = 0.95f)
     Row(
-        Modifier.fillMaxWidth().background(barBg).border(1.dp, Color.White.copy(alpha = 0.13f)).padding(horizontal = 4.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(28.dp)).background(Color.White.copy(0.10f))
+            .border(1.dp, Color.White.copy(0.18f), RoundedCornerShape(28.dp)).padding(6.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        BottomItem("Каталог", tab == MainTab.Apps, accent) { onTab(MainTab.Apps) }
-        BottomItem("Библиотека", tab == MainTab.Library, accent) { onTab(MainTab.Library) }
-        BottomItem("Настройки", tab == MainTab.Settings, accent) { onTab(MainTab.Settings) }
-        BottomItem("Профиль", tab == MainTab.Profile, accent) { onTab(MainTab.Profile) }
-    }
-}
-
-@Composable
-private fun BottomItem(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
-    Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = if (selected) accent else Color.White.copy(alpha = 0.4f), fontSize = 11.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+        listOf(MainTab.Apps to "Каталог", MainTab.Library to "Библио", MainTab.Settings to "Настр", MainTab.Profile to "Профиль").forEach { (t, n) ->
+            val on = tab == t
+            Text(
+                n,
+                color = if (on) Color.Black else Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(if (on) accent else Color.Transparent).clickable { onTab(t) }.padding(horizontal = 10.dp, vertical = 10.dp)
+            )
+        }
     }
 }
 
 @Composable
 fun ProfileTab(account: Account?, onLogout: () -> Unit, accent: Color = Color(0xFF8B9CFF)) {
     val context = LocalContext.current
-    val text = Color(0xFFF2F2F7)
-    val textDim = Color.White.copy(alpha = 0.55f)
-    val glass = Color.White.copy(alpha = 0.11f)
-    val border = Color.White.copy(alpha = 0.13f)
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(20.dp)) {
-        Text("Профиль", color = text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text(account?.displayName?.ifBlank { account.username } ?: "Гость", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text("@${account?.username ?: "—"}", color = textDim, fontSize = 13.sp)
-        Spacer(Modifier.height(16.dp))
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(accent).clickable {
-            context.startActivity(Intent(context, IntegrationsActivity::class.java))
-        }.padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
-            Text("Интеграции и тарифы", color = Color.Black, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(16.dp))
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(glass).border(1.dp, border, RoundedCornerShape(16.dp)).padding(16.dp)) {
-            Text("Сотрудничество", color = text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            Text("Хочешь добавить игру в каталог? Пришли GitHub в Telegram.", color = textDim, fontSize = 13.sp)
-            Spacer(Modifier.height(14.dp))
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(accent).clickable {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(COLLAB_TG)))
-            }.padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
-                Text("Заявка в Telegram", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(16.dp)) {
+        AnimatedVisibility(true, enter = slideInVertically(tween(280)) { it / 4 } + fadeIn(tween(220))) {
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color.White.copy(0.10f)).border(1.dp, Color.White.copy(0.16f), RoundedCornerShape(24.dp)).padding(16.dp)) {
+                Text("Профиль", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(account?.displayName?.ifBlank { account.username } ?: "Гость", color = accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("@${account?.username ?: "—"}", color = Color.White.copy(0.55f))
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(glass).border(1.dp, border, RoundedCornerShape(16.dp)).padding(16.dp)) {
-            Text("О магазине", color = text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            Text("LuntikStore 0.9.0 · интеграции, тарифы змейки и подписки Стора.", color = textDim, fontSize = 13.sp)
-        }
+        Spacer(Modifier.height(12.dp))
+        IslandBtn("Интеграции и тарифы", accent) { context.startActivity(Intent(context, IntegrationsActivity::class.java)) }
+        IslandCard("Сотрудничество", "Хочешь добавить игру? Пришли GitHub в Telegram.")
+        IslandBtn("Заявка в Telegram", accent) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(COLLAB_TG))) }
+        IslandCard("О магазине", "LuntikStore 1.1.1 · островки и анимации")
         Spacer(Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, border, RoundedCornerShape(12.dp)).clickable(onClick = onLogout).padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
-            Text("Выйти", color = Color(0xFFFF6B7A), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        }
+        IslandBtn("Выйти", Color(0xFFFF6B7A), onLogout)
+    }
+}
+@Composable private fun IslandCard(title: String, sub: String) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(22.dp)).background(Color.White.copy(0.08f)).border(1.dp, Color.White.copy(0.14f), RoundedCornerShape(22.dp)).padding(14.dp)) {
+        Text(title, color = Color.White, fontWeight = FontWeight.Bold)
+        Text(sub, color = Color.White.copy(0.55f), fontSize = 13.sp)
+    }
+}
+@Composable private fun IslandBtn(label: String, bg: Color, on: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(22.dp)).background(bg).clickable(onClick = on).padding(14.dp), contentAlignment = Alignment.Center) {
+        Text(label, color = Color.Black, fontWeight = FontWeight.Bold)
     }
 }
