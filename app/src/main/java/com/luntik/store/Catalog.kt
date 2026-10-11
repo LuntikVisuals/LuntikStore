@@ -160,6 +160,60 @@ object Catalog {
             price = 100,
             featured = true
         ),
+        CatalogApp(
+            id = "tenklinka",
+            name = "Тень Клинка",
+            tagline = "Файтинг на мечах · сюжет и рейтинг",
+            description = "Файтинг на мечах в духе Shadow Fight 2 в мире викингов: сюжетная кампания, рейтинговые бои за кубки, кейсы и прокачка оружия. Работает офлайн.",
+            version = "3.0",
+            packageName = "com.luntikvisuals.tenklinka",
+            githubRepo = "LuntikVisuals/ten-klinka",
+            apkAssetName = "ten-klinka.apk",
+            repoUrl = "https://github.com/LuntikVisuals/ten-klinka",
+            accent = Color(0xFF9B7BFF),
+            category = AppCategory.GAMES,
+            featured = true
+        ),
+        CatalogApp(
+            id = "koronastikhiy",
+            name = "Корона Стихий",
+            tagline = "Карточные битвы · арены",
+            description = "Карточные битвы в духе Clash Royale: собери колоду из 8 карт, выставляй войска, здания и заклинания и разрушь башни соперника. Работает офлайн.",
+            version = "1.0",
+            packageName = "com.luntikvisuals.koronastikhiy",
+            githubRepo = "LuntikVisuals/korona-stikhiy",
+            apkAssetName = "korona-stikhiy.apk",
+            repoUrl = "https://github.com/LuntikVisuals/korona-stikhiy",
+            accent = Color(0xFFFFB347),
+            category = AppCategory.GAMES,
+            featured = true
+        ),
+        CatalogApp(
+            id = "zvezdnayagryadka",
+            name = "Звёздная Грядка",
+            tagline = "Ферма-приключение",
+            description = "Активная ферма-приключение: выращивай урожай, руби деревья, добывай руду, лови рыбу, сражайся с монстрами и боссами, куй снаряжение. Не кликер. Работает офлайн.",
+            version = "1.0",
+            packageName = "com.luntikvisuals.zvezdnayagryadka",
+            githubRepo = "LuntikVisuals/zvezdnaya-gryadka",
+            apkAssetName = "zvezdnaya-gryadka.apk",
+            repoUrl = "https://github.com/LuntikVisuals/zvezdnaya-gryadka",
+            accent = Color(0xFF7ED957),
+            category = AppCategory.GAMES
+        ),
+        CatalogApp(
+            id = "zavodnyekoshmary",
+            name = "Windup Wonderland",
+            tagline = "Асимметричный хоррор",
+            description = "Асимметричный 2D-хоррор в заброшенном центре развлечений: играй за выживших или за аниматроника. Без крови. Неофициальная фан-игра (дань FNAF); персонажи FNAF © Scott Cawthon.",
+            version = "2.1",
+            packageName = "com.luntikvisuals.zavodnyekoshmary",
+            githubRepo = "LuntikVisuals/zavodnye-koshmary",
+            apkAssetName = "zavodnye-koshmary.apk",
+            repoUrl = "https://github.com/LuntikVisuals/zavodnye-koshmary",
+            accent = Color(0xFFE05555),
+            category = AppCategory.GAMES
+        ),
         // ——— Внешние FOSS ———
         CatalogApp(
             id = "ricochlime",
