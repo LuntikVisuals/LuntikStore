@@ -14,15 +14,25 @@ android {
         versionName = "1.1.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // Подпись: ключ НЕ хранится в репозитории. CI берёт его из GitHub Secrets
+    // (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD), раскодирует в
+    // keystore/luntik.keystore и передаёт пароли через переменные окружения.
+    // Если ключа нет — сборка подписывается обычным debug-ключом (только для теста).
+    val luntikKeystore = file(System.getenv("LUNTIK_KEYSTORE_FILE") ?: "../keystore/luntik.keystore")
+    val hasLuntikKey = luntikKeystore.exists() && !System.getenv("KEYSTORE_PASSWORD").isNullOrEmpty()
     signingConfigs {
-        create("luntik") {
-            val ks = file("../keystore/debug.keystore")
-            if (ks.exists()) { storeFile = ks; storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android" }
+        if (hasLuntikKey) {
+            create("luntik") {
+                storeFile = luntikKeystore
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
         }
     }
     buildTypes {
-        debug { signingConfig = signingConfigs.getByName("luntik") }
-        release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("luntik"); proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
+        debug { if (hasLuntikKey) signingConfig = signingConfigs.getByName("luntik") }
+        release { isMinifyEnabled = false; signingConfig = if (hasLuntikKey) signingConfigs.getByName("luntik") else signingConfigs.getByName("debug"); proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
